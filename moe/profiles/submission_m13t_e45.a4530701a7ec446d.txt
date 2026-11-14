@@ -1,0 +1,73 @@
+okc run a4530701a7ec446d on muse_moe_w4a16
+submission  meta-challenge/moe/submission_m13t_e45.py
+status      ok
+passed      true
+speedup     1.6546183926152227
+speedup_ci  [1.6297991167259944 1.679437668504451]
+score_us    8127.855981791576
+tests       5/5 passed
+
+scored shapes (µs; speed of light is the reference's bound)
+case                                                         sglang      yours  speedup        sol  
+bs=1 load=decode 1 sharding=ep8                               76.75      32.06   2.394x      11.42  
+bs=16 load=decode 16 sharding=ep8                            186.54     112.63   1.656x      52.52  
+bs=32 load=decode 32 sharding=ep8                            203.30     155.58   1.307x      70.76  
+bs=8 load=verify 1 sharding=ep8                              143.22      80.41   1.781x      37.32  
+bs=128 load=verify 16 sharding=ep8                           457.10     298.48   1.531x     101.34  
+bs=256 load=verify 32 sharding=ep8                           616.13     424.36   1.452x     108.94  
+
+profile 0: bs=1 load=decode 1 sharding=ep8
+kernel                                                           GPU time  share  calls
+void m11b::gemm_kernel<2, 1, 4, 4, true, false>(uint4 con...      14.7 µs  55.6%      1
+void m11b::gemm_kernel<1, 1, 4, 4, false, true>(uint4 con...       9.1 µs  34.5%      1
+m13::post_norm_kernel(__nv_bfloat16 const*, __nv_bfloat16...       2.6 µs   9.9%      1
+total                                                             26.4 µs
+
+profile 1: bs=16 load=decode 16 sharding=ep8
+kernel                                                           GPU time  share  calls
+void m11b::dyn_kernel<2, 1, 4, 2, true, false>(uint4 cons...      54.0 µs  58.8%      1
+void m11b::gemm_kernel<2, 1, 4, 4, false, true>(uint4 con...      30.1 µs  32.8%      1
+m13::post_norm_kernel(__nv_bfloat16 const*, __nv_bfloat16...       7.7 µs   8.4%      1
+total                                                             91.8 µs
+GPU busy (kernels overlap: PDL or streams)                        86.3 µs
+an overlapping kernel's time includes any wait for the one before it, so the rows add up to more
+
+profile 2: bs=32 load=decode 32 sharding=ep8
+kernel                                                           GPU time  share  calls
+void m11b::dyn_kernel<2, 1, 4, 2, true, false>(uint4 cons...     114.5 µs  60.8%      1
+void m11b::dyn_kernel<2, 1, 4, 4, false, true>(uint4 cons...      63.1 µs  33.5%      1
+m13::post_norm_kernel(__nv_bfloat16 const*, __nv_bfloat16...      10.8 µs   5.7%      1
+total                                                            188.4 µs
+GPU busy (kernels overlap: PDL or streams)                       179.9 µs
+an overlapping kernel's time includes any wait for the one before it, so the rows add up to more
+
+profile 3: bs=8 load=verify 1 sharding=ep8
+kernel                                                           GPU time  share  calls
+void m11b::gemm_kernel<2, 1, 4, 2, true, false>(uint4 con...      38.0 µs  61.0%      1
+void m11b::occ_kernel<2, 1, 4, 4, false, true, 4>(uint4 c...      21.3 µs  34.2%      1
+m13::post_norm_kernel(__nv_bfloat16 const*, __nv_bfloat16...       3.0 µs   4.9%      1
+total                                                             62.4 µs
+GPU busy (kernels overlap: PDL or streams)                        61.4 µs
+an overlapping kernel's time includes any wait for the one before it, so the rows add up to more
+
+profile 4: bs=128 load=verify 16 sharding=ep8
+kernel                                                           GPU time  share  calls
+void m11b::dyn_kernel<2, 1, 4, 2, true, false>(uint4 cons...     110.1 µs  33.0%      1
+void m11b::dyn_kernel<2, 1, 4, 4, false, true>(uint4 cons...      90.2 µs  27.0%      1
+void m19::wr_kernel<2, 4, true, 2, 3, 0>(uint4 const*, ui...      71.9 µs  21.6%      1
+void m18::ss_kernel<2, 8, false, 2, 0>(uint4 const*, uint...      44.7 µs  13.4%      1
+m13::post_norm_kernel(__nv_bfloat16 const*, __nv_bfloat16...      16.4 µs   4.9%      1
+total                                                            333.4 µs
+GPU busy (kernels overlap: PDL or streams)                       280.6 µs
+an overlapping kernel's time includes any wait for the one before it, so the rows add up to more
+
+profile 5: bs=256 load=verify 32 sharding=ep8
+kernel                                                           GPU time  share  calls
+void m19::wr_kernel<2, 2, true, 2, 4, 0>(uint4 const*, ui...     162.2 µs  31.6%      1
+void m19::wr_kernel<2, 4, true, 2, 3, 0>(uint4 const*, ui...     119.6 µs  23.3%      1
+void m19::wr_kernel<2, 2, false, 4, 4, 0>(uint4 const*, u...     102.0 µs  19.9%      1
+void m19::wr_kernel<2, 4, false, 2, 4, 0>(uint4 const*, u...      97.1 µs  18.9%      1
+m13::post_norm_kernel(__nv_bfloat16 const*, __nv_bfloat16...      32.8 µs   6.4%      1
+total                                                            513.8 µs
+GPU busy (kernels overlap: PDL or streams)                       432.1 µs
+an overlapping kernel's time includes any wait for the one before it, so the rows add up to more

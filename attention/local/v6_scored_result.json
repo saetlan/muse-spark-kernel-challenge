@@ -1,0 +1,34 @@
+{
+  "board": "muse_attention_decode",
+  "content_hash": "5872c86d4eb4304bb97976ef6b356aa37d95b540bc30bd1aa06eec057b09c726",
+  "created_at": 1793783861.1679254,
+  "duplicate_of": null,
+  "finished_at": 1793784511.0426388,
+  "id": "ca55d939665d429d",
+  "limits": {
+    "scored": {
+      "per_day": 20,
+      "used": 2,
+      "left": 18
+    },
+    "checks": {
+      "per_day": 40,
+      "used": 9,
+      "left": 31
+    }
+  },
+  "mode": "run",
+  "payload_ref": "muse_attention_decode/5872c86d4eb4304bb97976ef6b356aa37d95b540bc30bd1aa06eec057b09c726.py",
+  "refunded": true,
+  "result": {
+    "error": "the run hit an infrastructure error; it was refunded (it doesn't count against your daily cap), and its results aren't shown; you can submit the same code again",
+    "log_tail": "",
+    "records": [],
+    "score_us": null,
+    "speedup": null,
+    "speedup_ci": null,
+    "status": "infra_error"
+  },
+  "status": "failed",
+  "team": "saetlan"
+}

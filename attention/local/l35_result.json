@@ -1,0 +1,88 @@
+{
+  "board": "muse_attention_decode",
+  "call_id": "nyc3b:kc-454bf283438649bd",
+  "cluster": "nyc3b",
+  "content_hash": "c053aeea520c6b0c53d184b17c36beee8a5bb296b7284f4b9d8df24474d409d9",
+  "created_at": 1793840415.6266818,
+  "dedicated": false,
+  "duplicate_of": null,
+  "finished_at": 1793841507.1143565,
+  "id": "454bf283438649bd",
+  "limits": {
+    "scored": {
+      "per_day": 20,
+      "used": 1,
+      "left": 19
+    },
+    "checks": {
+      "per_day": 40,
+      "used": 3,
+      "left": 37
+    }
+  },
+  "mode": "check",
+  "output": {
+    "log": "meta-challenge/attention/profiles/lab_l35.454bf283438649bd.log"
+  },
+  "payload_ref": "muse_attention_decode/c053aeea520c6b0c53d184b17c36beee8a5bb296b7284f4b9d8df24474d409d9.py",
+  "result": {
+    "checks": {
+      "flagged": [],
+      "ok": true,
+      "rejected": []
+    },
+    "error": null,
+    "evaluator": {
+      "code_sha256": "c64ec50d4fca1ac0ae80eae2883ad7e8acee7938f0032bc0470126fcfe8d9a58",
+      "files": {
+        "challenge/checks.py": "9a046c3c38db28b325dcd1557baecdf6bc9ef941d2175f9a900ba4c230bb8055",
+        "challenge/nvfp4.py": "cfdf37c7bc14b10f7353aba7d4632f4767401b92b4b073941a8030d9a961aaaf",
+        "configs/muse-spark-open.yaml": "60e242544d5f5a5fc143870461f7373b85accb677a536cb337581ded938c4a48",
+        "harness/eval.py": "0051a1bfac67a9f1fad06086b306653c6643b2bb253e15a794aa672312f070a9",
+        "harness/runner.py": "c905e5c80264c6d27620b6fc7d55b162dccdb8ed7282f8a513a4d2e6f2f226f2",
+        "harness/static_checks.py": "c5588b69e9e86229459a525c61b30096f6f13ff2add6cadf98f272c4ac8ca0c2",
+        "harness/worker.py": "950437610f57ddffbc1176b65d9c2ae909c47bf67b1e3fe0716a81946986f568",
+        "problems/muse_attention_decode/baseline.py": "37f51207283f85a65eb393b1dfb1344759d7df0bdec5450e34d24e7139f56ecc",
+        "problems/muse_attention_decode/reference.py": "386f7f67a1d788501e8fb9005d340423d098a0946e23810ba10878228c11a37b",
+        "problems/muse_attention_decode/task.yml": "645f889fbbd52d1d731bf5eb53356aa7ef6eea8fab3073f0a2a3dd582fe6e4bb"
+      },
+      "image": "localhost:30500/kc/judge@sha256:8c102d00529abd8b80898116ac64a9c8f66bbd256d56142be4b96fb626e89452"
+    },
+    "flags": [],
+    "gpu": "H200",
+    "log_tail": "[lab] L35: timed path v14: [((False, False, 1), ('ud4', 16, 4, 3)), ((False, False, 16), ('ud4', 8, 4, 3)), ((False, False, 32), ('ud4', 8, 4, 3)), ((False, True, 1), ('uw2', 6, 0, 16)), ((False, True, 16), ('uw2', 4, 1, 4)), ((False, True, 32), ('w1n', 1, 4)), ((True, False, 1), ('dec4', 2, 4, 3, 'w')), ((True, False, 16), ('dec4', 3, 4, 3, 'w')), ((True, False, 32), ('dec4', 6, 4, 3)), ((True, True, 1), ('w2', 1, 4, 1)), ((True, True, 16), ('w3b', 6, 1, 4, 104)), ((True, True, 32), ('w3b', 6, 1, 4, 104))]\n[lab] w3d s6 pp1 nwg4 rc104/56 attrs (regs, local B, static smem B, pool ok): [96, 0, 256, 1]\n[lab] w3d s6 pp0 nwg4 rc104/56 attrs (regs, local B, static smem B, pool ok): [96, 0, 256, 1]\n[lab] w3d s7 pp1 nwg4 rc104/56 attrs (regs, local B, static smem B, pool ok): [96, 0, 256, 1]\n[lab] w3d s4 pp1 nwg4 rc104/56 attrs (regs, local B, static smem B, pool ok): [96, 0, 128, 1]\n",
+    "machine": {
+      "gpu_after": {
+        "clocks.max.sm": 1980,
+        "clocks.mem": 3201,
+        "clocks.sm": 1980,
+        "driver_version": "580.159.03",
+        "name": "NVIDIA H200",
+        "power.draw": 125.71,
+        "power.limit": 700,
+        "temperature.gpu": 34
+      },
+      "gpu_before": {
+        "clocks.max.sm": 1980,
+        "clocks.mem": 3201,
+        "clocks.sm": 1980,
+        "driver_version": "580.159.03",
+        "name": "NVIDIA H200",
+        "power.draw": 132.05,
+        "power.limit": 700,
+        "temperature.gpu": 34
+      },
+      "node": "n-o5mphtkowabtwvhzsez6jyzppv"
+    },
+    "passed": false,
+    "records": [],
+    "returncode": -9,
+    "score_us": null,
+    "speedup": null,
+    "speedup_ci": null,
+    "status": "timeout"
+  },
+  "started_at": 1793840586.4842114,
+  "status": "done",
+  "team": "saetlan"
+}

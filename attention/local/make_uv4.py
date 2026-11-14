@@ -1,0 +1,528 @@
+"""Generates attention/local/cuda_uv4.py: UV4, one launch per sliding verify layer (q_len 8): V4's
+FP8 attention (cuda_ver4.py) with the prologue and the merge moved inside, one cluster of CS CTAs
+per (request, KV-head pair) (AF32/AF35: the Triton prologue, V4 and _combine cost three launches
+and a 2-9 us merge on every sliding verify shape). Verified V4 pieces are copied byte for byte by
+anchors that must occur exactly once (asserted): helpers, the producer warp (page entries in the
+ring, whole-row copies, full/empty mbarriers) and the consumer loop (FP8 Q.K, softmax, FP8 P.V).
+What changes:
+1. Prologue in the consumer warps, while the producer fetches page entries and K/V rows:
+   RoPE table (8 tokens x 32 frequencies, one sincosf each), the query fold (RMSNorm, RoPE,
+   rounded to E4M3 straight into V4's fragment order; qk_scale_factor folded into qk_scale, so
+   the queries are E4M3(normalized query) exactly as the reference's FP8 variant rounds them),
+   and the block's own keys/values: the CTA whose slice holds token l's key computes it
+   (RMSNorm, RoPE, /k_scale -> E4M3; v / v_scale -> E4M3), writes it to the cache at
+   cache_loc and keeps it in shared memory (new_k / new_v).
+2. Consumer loop: rows of keys n-8 .. n-1 inside the slice are read from new_k / new_v instead
+   of the ring (the copy may have read the cache row before this CTA wrote it); the only patch.
+3. Merge by push (as UD3, AF32): every CTA's 128 rows (8 tokens x 16 heads: o, m, l) go straight
+   into the shared memory of the row's owner (CTA r finalizes rows r*RPC .. +RPC-1, RPC = 128/CS):
+   st.shared::cluster.v4 to mapa(owner), split cluster barrier (arrive at entry, wait before the
+   first remote store), one cluster barrier, then each CTA merges its rows from its own buffer and
+   applies RMSNorm x sigmoid(gate) (gate rows cp.async'd to shared memory at entry).
+4. Second level (full verify bs1, ncl > 1 clusters per request): slices are cluster-major; each
+   owner writes its merged rows (o, m, l) to gpart[request, pair][cluster][row]; after a fence one
+   thread takes a ticket per (request pair, rank); the CTA that completes the count merges the ncl
+   partials of its rows (L2 loads), finalizes them and resets the ticket (zero for the next launch).
+Receive buffer: dynamic shared memory after the ring, RB[CS][RPC][LBP] floats (LBP = 68: 64 o, m, l, 2 pad),
+128 x 272 B = 34,816 B whatever CS.
+Run: .venv/bin/python attention/local/make_uv4.py [--check]
+"""
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+OUT = os.path.join(HERE, "cuda_uv4.py")
+
+
+def load(fname, var):
+    ns = {}
+    exec(compile(open(os.path.join(HERE, fname)).read(), fname, "exec"), ns)
+    return ns[var]
+
+
+def between(src, a, b, what, include_b=False):
+    assert src.count(a) == 1, f"{what}: start anchor x{src.count(a)}"
+    i = src.index(a)
+    j = src.index(b, i)
+    assert src.count(b) >= 1
+    return src[i:j + (len(b) if include_b else 0)]
+
+
+def patch(src, old, new, what):
+    assert src.count(old) == 1, f"{what}: x{src.count(old)}"
+    return src.replace(old, new)
+
+
+V4 = load("cuda_ver4.py", "CUDA_VER4_SRC")
+HELPERS = between(V4, "#include <torch/extension.h>", "template <int STAGES, int MT, int MINB>", "helpers")
+PRODUCER = between(V4, "    // ---- producer: whole-row 16 B copies of each 64-key stage.",
+                   "    asm volatile(\"cp.async.wait_all;\");\n", "producer", include_b=True)
+LOOP = between(V4, "  float m_run[MT][2], l_run[MT][2], acc[MT][8][4];\n",
+               "      (void)state;\n    }\n  }\n", "loop", include_b=True)
+HELPERS = patch(HELPERS, "namespace okc_ver4 {", "namespace okc_uv4 {", "namespace")
+assert "okc_ver4" not in HELPERS
+
+# The consumer loop's one patch: rows of the block's own keys come from new_k / new_v.
+LOOP = patch(LOOP, "      const bool masked = s0 + SUB > end || s0 + SUB > n - L || window > 0;\n",
+             "      const bool masked = s0 + SUB > end || s0 + SUB > n - L || window > 0;\n"
+             "      // UV4: the sub-chunk reaches the block's own keys (n-8 .. n-1): their rows come from\n"
+             "      // new_k / new_v, computed in-kernel by the CTA holding them (the ring's copy may predate\n"
+             "      // the cache write). Rows past the slice end are copies of row end-1 (masked, but a stale\n"
+             "      // NaN byte times P = 0 is NaN), so the key is clamped to end-1 first.\n"
+             "      const bool fresh = s0 + SUB > n - L;\n", "fresh")
+LOOP = patch(LOOP,
+             "        const uint8_t* vr = sv + (32 * sc) * VP + 64 * h + 8 * g;\n"
+             "        const uint2 r0 = *reinterpret_cast<const uint2*>(vr + (2 * t4) * VP);\n"
+             "        const uint2 r1 = *reinterpret_cast<const uint2*>(vr + (2 * t4 + 1) * VP);\n"
+             "        const uint2 r2 = *reinterpret_cast<const uint2*>(vr + (2 * t4 + 8) * VP);\n"
+             "        const uint2 r3 = *reinterpret_cast<const uint2*>(vr + (2 * t4 + 9) * VP);\n"
+             "        const uint2 r4 = *reinterpret_cast<const uint2*>(vr + (2 * t4 + 16) * VP);\n"
+             "        const uint2 r5 = *reinterpret_cast<const uint2*>(vr + (2 * t4 + 17) * VP);\n"
+             "        const uint2 r6 = *reinterpret_cast<const uint2*>(vr + (2 * t4 + 24) * VP);\n"
+             "        const uint2 r7 = *reinterpret_cast<const uint2*>(vr + (2 * t4 + 25) * VP);\n",
+             "        auto vrow = [&](int r) -> const uint2* {   // row r of the sub-chunk, bytes 64*h + 8*g ..\n"
+             "          const int key = min(s0 + r, end - 1);\n"
+             "          return reinterpret_cast<const uint2*>(fresh && key >= n - L\n"
+             "                                                    ? new_v + (key - (n - L)) * 128 + 64 * h + 8 * g\n"
+             "                                                    : sv + (32 * sc + r) * VP + 64 * h + 8 * g);\n"
+             "        };\n"
+             "        const uint2 r0 = *vrow(2 * t4);\n"
+             "        const uint2 r1 = *vrow(2 * t4 + 1);\n"
+             "        const uint2 r2 = *vrow(2 * t4 + 8);\n"
+             "        const uint2 r3 = *vrow(2 * t4 + 9);\n"
+             "        const uint2 r4 = *vrow(2 * t4 + 16);\n"
+             "        const uint2 r5 = *vrow(2 * t4 + 17);\n"
+             "        const uint2 r6 = *vrow(2 * t4 + 24);\n"
+             "        const uint2 r7 = *vrow(2 * t4 + 25);\n", "v rows")
+LOOP = patch(LOOP,
+             "          const uint4 kb = *reinterpret_cast<const uint4*>(&sk[(32 * sc + 8 * nt + g) * KP + 64 * h + 16 * t4]);\n",
+             "          const int kr = 8 * nt + g, kkey = min(s0 + kr, end - 1);\n"
+             "          const uint4 kb = *reinterpret_cast<const uint4*>(fresh && kkey >= n - L\n"
+             "                                                            ? new_k + (kkey - (n - L)) * 128 + 64 * h + 16 * t4\n"
+             "                                                            : sk + (32 * sc + kr) * KP + 64 * h + 16 * t4);\n",
+             "k rows")
+
+KERNEL = r"""constexpr int LBP = 68;     // receive buffer row: 64 o, m, l, 2 pad (floats)
+constexpr int ROWS = 128;   // query rows per (request, KV-head pair): 8 tokens x 16 heads, row = 16 * token + head
+
+__device__ __forceinline__ uint32_t map_rank(uint32_t local_addr, uint32_t rank) {
+  uint32_t a;
+  asm volatile("mapa.shared::cluster.u32 %0, %1, %2;" : "=r"(a) : "r"(local_addr), "r"(rank));
+  return a;
+}
+__device__ __forceinline__ void st_cluster(uint32_t addr, float v) {
+  asm volatile("st.shared::cluster.f32 [%0], %1;" ::"r"(addr), "f"(v) : "memory");
+}
+__device__ __forceinline__ void st_cluster4(uint32_t addr, float a, float b, float c, float d) {
+  asm volatile("st.shared::cluster.v4.f32 [%0], {%1, %2, %3, %4};" ::"r"(addr), "f"(a), "f"(b), "f"(c), "f"(d) : "memory");
+}
+__device__ __forceinline__ uint32_t cluster_rank() {
+  uint32_t r;
+  asm volatile("mov.u32 %0, %%cluster_ctarank;" : "=r"(r));
+  return r;
+}
+__device__ __forceinline__ void cluster_sync() {
+  asm volatile("barrier.cluster.arrive.release.aligned;\n\tbarrier.cluster.wait.acquire.aligned;" ::: "memory");
+}
+__device__ __forceinline__ uint32_t e4m3x2(float lo, float hi) {
+  uint16_t d;
+  asm("cvt.rn.satfinite.e4m3x2.f32 %0, %1, %2;" : "=h"(d) : "f"(hi), "f"(lo));
+  return d;
+}
+__device__ __forceinline__ uint16_t f2bf16(float x) {
+  uint16_t d;
+  asm("cvt.rn.bf16.f32 %0, %1;" : "=h"(d) : "f"(x));
+  return d;
+}
+
+template <int STAGES, int MT, int CS>
+__global__ void __cluster_dims__(CS, 1, 1) __launch_bounds__((8 / MT + 1) * 32, 1) uv4_kernel(
+    const uint16_t* __restrict__ qkv, const long* __restrict__ positions, const long* __restrict__ cache_loc,
+    const float* __restrict__ inv_freq, uint8_t* __restrict__ kc, uint8_t* __restrict__ vc,
+    const float* __restrict__ k_scale_p, const float* __restrict__ v_scale_p, const int* __restrict__ page_table,
+    const int* __restrict__ seqlens, uint16_t* __restrict__ out,
+    int hq, int hkv, int max_pages, int page, int window, int rope, float qk_factor, float sm_scale,
+    int ncl, float* __restrict__ gpart, int* __restrict__ tickets) {
+  constexpr int WC = 8 / MT;                          // consumer warps; warp WC is the producer
+  constexpr int WPH = 4 / MT;                         // consumer warps per KV head
+  constexpr int RPC = ROWS / CS;                      // output rows each CTA of the cluster finalizes
+  constexpr int RPW = RPC / WC;                       // ... per consumer warp
+  constexpr int LPW = L / WC;                         // block tokens per consumer warp (new rows)
+  static_assert(RPC % WC == 0 && L % WC == 0, "rows and tokens split evenly over the consumer warps");
+  extern __shared__ __align__(16) uint8_t ring[];     // STAGES x (64 K rows at KP, 64 V rows at VP), then RB
+  float* rbuf = reinterpret_cast<float*>(ring + STAGES * STAGE_BYTES);   // [CS][RPC][LBP]
+  __shared__ __align__(8) uint64_t full_bar[STAGES], empty_bar[STAGES];
+  __shared__ __align__(16) uint8_t new_k[L * 128];    // the block's keys / values (E4M3), token l at 128 * l,
+  __shared__ __align__(16) uint8_t new_v[L * 128];    // byte 64 * h + d = head kv0 + h, dim d
+  __shared__ __align__(16) uint16_t gsm[RPC * 64];    // gate rows of this CTA's output rows (BF16)
+  __shared__ float rope_c[L][32], rope_s[L][32];
+  __shared__ int s_last;                              // second level: this CTA's cluster finished last
+
+  const int tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
+  const int g = lane >> 2, t4 = lane & 3;
+  const int h = warp / WPH, mt0 = (warp % WPH) * MT;  // consumers: head of the pair, first m-tile
+  const int pairs = hkv >> 1;
+  const int bp = blockIdx.y / ncl, cl = blockIdx.y % ncl;   // (request, KV-head pair), its cluster
+  const int b = bp / pairs;
+  const int kv0 = (bp % pairs) * 2;
+  const int nsplit = CS * ncl;                        // slices of the request's keys, cluster-major
+  const int split = cl * CS + blockIdx.x;             // grid x = CS = cluster x: blockIdx.x == cluster rank
+  const uint32_t rank = cluster_rank();
+  const long row_bytes = static_cast<long>(hkv) * 64;
+  const long poff = static_cast<long>(kv0) * 64;
+  // every CTA of the cluster must be running before any peer writes its shared memory: arrive
+  // now, wait just before the first remote store
+  asm volatile("barrier.cluster.arrive.relaxed.aligned;" ::: "memory");
+
+  const long qkv_row = static_cast<long>(2 * hq + 2 * hkv) * 64;
+  const uint16_t* qkv_b = qkv + static_cast<long>(b) * L * qkv_row;   // block token l: qkv_b + l * qkv_row
+  const int n = seqlens[b];                         // keys 0 .. n-1; block token l sits at n - L + l
+  const int lo = window > 0 ? max(n - L - window + 1, 0) : 0;
+  int per = (n - lo + nsplit - 1) / nsplit;
+  per = (per + CHUNK - 1) / CHUNK * CHUNK;
+  const int start = lo + split * per;
+  const int end = min(start + per, n);
+  const int nchunks = end > start ? (end - start + CHUNK - 1) / CHUNK : 0;
+  const int nsub = end > start ? (end - start + SUB - 1) / SUB : 0;
+  // queries are E4M3(normalized query); qk_scale_factor joins the score scale
+  const float qk_scale = sm_scale * qk_factor * (*k_scale_p) * 1.4426950408889634f;
+  const int* pt = page_table + static_cast<long>(b) * max_pages;
+  const int nst = (nchunks + 3) / 4;                  // 64-key stages of this slice
+
+  if (tid == 0) {
+#pragma unroll
+    for (int s = 0; s < STAGES; ++s) {
+      asm volatile("mbarrier.init.shared::cta.b64 [%0], 32;" ::"r"(smem_u32(&full_bar[s])));   // producer lanes
+      asm volatile("mbarrier.init.shared::cta.b64 [%0], %1;" ::"r"(smem_u32(&empty_bar[s])), "n"(WC));   // consumer warps
+    }
+    asm volatile("fence.mbarrier_init.release.cluster;");
+  }
+  __syncthreads();
+
+  if (warp == WC) {
+@@PRODUCER@@
+    asm volatile("barrier.cluster.wait.aligned;" ::: "memory");   // pairs with the entry arrive
+  } else {
+    // ---- 1. loads that do not depend on seqlens: gate rows (cp.async to gsm), queries, the
+    // block's raw keys/values (token l = warp + j*WC, head lane >> 4, dims 4*(lane & 15) .. +3), cache rows
+    for (int c = tid; c < RPC * 8; c += WC * 32) {    // RPC rows x 8 pieces of 16 B
+      const int slot = c >> 3, R = static_cast<int>(rank) * RPC + slot;
+      const uint16_t* gp = qkv_b + static_cast<long>(R >> 4) * qkv_row + static_cast<long>(hq + 2 * hkv) * 64 +
+                           (kv0 * 8 + (R & 15)) * 64 + 8 * (c & 7);
+      cp16(gsm + slot * 64 + 8 * (c & 7), gp);
+    }
+    asm volatile("cp.async.commit_group;");
+    uint4 qraw[MT][2][2];                             // [m-tile][row g / g+8][dims 16*t4 .. +7 / +8 .. +15]
+#pragma unroll
+    for (int mi = 0; mi < MT; ++mi)
+#pragma unroll
+      for (int r = 0; r < 2; ++r) {
+        const uint4* qp = reinterpret_cast<const uint4*>(qkv_b + static_cast<long>(2 * (mt0 + mi) + r) * qkv_row +
+                                                         ((kv0 + h) * 8 + g) * 64 + 16 * t4);
+        qraw[mi][r][0] = qp[0];
+        qraw[mi][r][1] = qp[1];
+      }
+    uint2 kraw[LPW], vraw[LPW];
+    long crow[LPW];
+#pragma unroll
+    for (int j = 0; j < LPW; ++j) {
+      const int l = warp + j * WC;
+      const uint16_t* kp = qkv_b + static_cast<long>(l) * qkv_row + static_cast<long>(hq) * 64 + (kv0 + (lane >> 4)) * 64 + 4 * (lane & 15);
+      kraw[j] = *reinterpret_cast<const uint2*>(kp);
+      vraw[j] = *reinterpret_cast<const uint2*>(kp + static_cast<long>(hkv) * 64);
+      crow[j] = cache_loc[static_cast<long>(b) * L + l];
+    }
+    // ---- 2. RoPE table: entry e = token e >> 5, frequency e & 31 (one sincosf each)
+    if (rope) {
+      for (int e = tid; e < L * 32; e += WC * 32)
+        sincosf(static_cast<float>(positions[static_cast<long>(b) * L + (e >> 5)]) * inv_freq[e & 31],
+                &rope_s[e >> 5][e & 31], &rope_c[e >> 5][e & 31]);
+    }
+    asm volatile("bar.sync 1, %0;" ::"n"(WC * 32) : "memory");   // consumers only: the table is ready
+    // ---- 3. query fold: rows g (token 2*mt) / g+8 (token 2*mt+1) of head (kv0+h)*8 + g, dims 16*t4 + i
+    // (RoPE pair (2p, 2p+1) of the lane's dims = frequency 8*t4 + p), E4M3 in V4's fragment order
+    uint32_t qa[MT][2][4];
+#pragma unroll
+    for (int mi = 0; mi < MT; ++mi) {
+      float x[2][16];
+#pragma unroll
+      for (int r = 0; r < 2; ++r) {
+#pragma unroll
+        for (int hh = 0; hh < 2; ++hh) {
+          const uint32_t w[4] = {qraw[mi][r][hh].x, qraw[mi][r][hh].y, qraw[mi][r][hh].z, qraw[mi][r][hh].w};
+#pragma unroll
+          for (int e = 0; e < 4; ++e) {
+            x[r][8 * hh + 2 * e] = __uint_as_float(w[e] << 16);
+            x[r][8 * hh + 2 * e + 1] = __uint_as_float(w[e] & 0xffff0000u);
+          }
+        }
+        float ss = 0.f;
+#pragma unroll
+        for (int i = 0; i < 16; ++i) ss += x[r][i] * x[r][i];
+        ss += __shfl_xor_sync(FULL, ss, 1);           // the head's 64 dims sit in lanes t4 = 0..3
+        ss += __shfl_xor_sync(FULL, ss, 2);
+        const float rr = rsqrtf(ss / 64.f + 1e-5f);
+#pragma unroll
+        for (int i = 0; i < 16; ++i) x[r][i] *= rr;
+        if (rope) {
+          const int tok = 2 * (mt0 + mi) + r;
+#pragma unroll
+          for (int p = 0; p < 8; ++p) {
+            const float sn = rope_s[tok][8 * t4 + p], cs = rope_c[tok][8 * t4 + p];
+            const float e = x[r][2 * p], o = x[r][2 * p + 1];
+            x[r][2 * p] = e * cs - o * sn;
+            x[r][2 * p + 1] = e * sn + o * cs;
+          }
+        }
+      }
+#pragma unroll
+      for (int s = 0; s < 2; ++s) {
+        const int o = 8 * s;
+        qa[mi][s][0] = e4m3x4(x[0][o + 0], x[0][o + 1], x[0][o + 2], x[0][o + 3]);
+        qa[mi][s][1] = e4m3x4(x[1][o + 0], x[1][o + 1], x[1][o + 2], x[1][o + 3]);
+        qa[mi][s][2] = e4m3x4(x[0][o + 4], x[0][o + 5], x[0][o + 6], x[0][o + 7]);
+        qa[mi][s][3] = e4m3x4(x[1][o + 4], x[1][o + 5], x[1][o + 6], x[1][o + 7]);
+      }
+    }
+    // ---- 4. the block's keys/values held by this CTA: token l's key n - L + l in [start, end)
+#pragma unroll
+    for (int j = 0; j < LPW; ++j) {
+      const int l = warp + j * WC;
+      const int key = n - L + l;
+      if (key >= start && key < end) {                // warp-uniform
+        const int d0 = 4 * (lane & 15);
+        const uint32_t kw2[2] = {kraw[j].x, kraw[j].y}, vw2[2] = {vraw[j].x, vraw[j].y};
+        float k4[4], v4[4];
+#pragma unroll
+        for (int e = 0; e < 2; ++e) {
+          k4[2 * e] = __uint_as_float(kw2[e] << 16);
+          k4[2 * e + 1] = __uint_as_float(kw2[e] & 0xffff0000u);
+          v4[2 * e] = __uint_as_float(vw2[e] << 16);
+          v4[2 * e + 1] = __uint_as_float(vw2[e] & 0xffff0000u);
+        }
+        float ss = k4[0] * k4[0] + k4[1] * k4[1] + k4[2] * k4[2] + k4[3] * k4[3];
+        ss += __shfl_xor_sync(FULL, ss, 1);
+        ss += __shfl_xor_sync(FULL, ss, 2);
+        ss += __shfl_xor_sync(FULL, ss, 4);
+        ss += __shfl_xor_sync(FULL, ss, 8);           // sum over the head's 16 lanes
+        const float rk = rsqrtf(ss / 64.f + 1e-5f);
+#pragma unroll
+        for (int e = 0; e < 4; ++e) k4[e] *= rk;
+        if (rope) {
+#pragma unroll
+          for (int p = 0; p < 2; ++p) {
+            const float sn = rope_s[l][d0 / 2 + p], cs = rope_c[l][d0 / 2 + p];
+            const float e = k4[2 * p], o = k4[2 * p + 1];
+            k4[2 * p] = e * cs - o * sn;
+            k4[2 * p + 1] = e * sn + o * cs;
+          }
+        }
+        const float kinv = 1.f / (*k_scale_p), vinv = 1.f / (*v_scale_p);
+        const uint32_t kw = e4m3x2(k4[0] * kinv, k4[1] * kinv) | (e4m3x2(k4[2] * kinv, k4[3] * kinv) << 16);
+        const uint32_t vw = e4m3x2(v4[0] * vinv, v4[1] * vinv) | (e4m3x2(v4[2] * vinv, v4[3] * vinv) << 16);
+        reinterpret_cast<uint32_t*>(new_k + 128 * l)[lane] = kw;   // bytes 4*lane .. = head lane >> 4, dims d0 ..
+        reinterpret_cast<uint32_t*>(new_v + 128 * l)[lane] = vw;
+        reinterpret_cast<uint32_t*>(kc + crow[j] * row_bytes + poff)[lane] = kw;
+        reinterpret_cast<uint32_t*>(vc + crow[j] * row_bytes + poff)[lane] = vw;
+      }
+    }
+    asm volatile("bar.sync 1, %0;" ::"n"(WC * 32) : "memory");   // new_k / new_v visible to every consumer
+
+    // ---- 5. V4's consumer loop (byte for byte but for the new-row reads)
+@@LOOP@@
+    asm volatile("cp.async.wait_all;");               // this thread's gate pieces landed (read after cluster_sync)
+
+    // ---- 6. push: row (token 2*(mt0+mi) + r, head h*8 + g) -> owner R / RPC, slot [rank][R % RPC]
+    asm volatile("barrier.cluster.wait.aligned;" ::: "memory");   // every CTA of the cluster has started
+#pragma unroll
+    for (int mi = 0; mi < MT; ++mi)
+#pragma unroll
+      for (int r = 0; r < 2; ++r) {
+        float l = l_run[mi][r];
+        l += __shfl_xor_sync(FULL, l, 1);
+        l += __shfl_xor_sync(FULL, l, 2);
+        const int R = (2 * (mt0 + mi) + r) * 16 + h * 8 + g;
+        const uint32_t row = map_rank(smem_u32(rbuf), static_cast<uint32_t>(R / RPC)) +
+                             static_cast<uint32_t>((static_cast<int>(rank) * RPC + R % RPC) * LBP * 4);
+        // dims 16*t4 + 8*jj + dt <- acc[mi][dt][2*r + jj] (V4's partial layout)
+#pragma unroll
+        for (int jj = 0; jj < 2; ++jj) {
+          const int c = 2 * r + jj;
+          st_cluster4(row + (16 * t4 + 8 * jj) * 4, acc[mi][0][c], acc[mi][1][c], acc[mi][2][c], acc[mi][3][c]);
+          st_cluster4(row + (16 * t4 + 8 * jj + 4) * 4, acc[mi][4][c], acc[mi][5][c], acc[mi][6][c], acc[mi][7][c]);
+        }
+        if (t4 == 0) {
+          st_cluster(row + 64 * 4, m_run[mi][r]);
+          st_cluster(row + 65 * 4, l);
+        }
+      }
+  }
+  cluster_sync();                                     // every row's CS partials in its owner's buffer
+  if (warp == WC) return;
+
+  // ---- 7. this CTA's rows: merge the CS partials of its cluster (row R = rank*RPC + slot)
+  float fo0[RPW], fo1[RPW], fm[RPW], fl[RPW];
+#pragma unroll
+  for (int j = 0; j < RPW; ++j) {
+    const int slot = warp + j * WC;
+    float mm = -1.0e30f;
+#pragma unroll
+    for (int src = 0; src < CS; ++src) mm = fmaxf(mm, rbuf[(src * RPC + slot) * LBP + 64]);
+    float l = 0.f, o0 = 0.f, o1 = 0.f;
+#pragma unroll
+    for (int src = 0; src < CS; ++src) {
+      const float* pr = rbuf + (src * RPC + slot) * LBP;
+      const float wt = ex2(pr[64] - mm);
+      l += wt * pr[65];
+      o0 += wt * pr[lane];
+      o1 += wt * pr[32 + lane];
+    }
+    fo0[j] = o0, fo1[j] = o1, fm[j] = mm, fl[j] = l;
+  }
+  if (ncl > 1) {
+    // ---- 8. second level (ncl clusters per request): the cluster's merged rows to global memory
+    // (gpart[bp][cl][R][LBP]); the last cluster to finish this rank's rows (ticket per (bp, rank))
+    // merges the ncl partials and resets the ticket for the next launch.
+    float* gq = gpart + (static_cast<long>(bp) * ncl + cl) * ROWS * LBP;
+#pragma unroll
+    for (int j = 0; j < RPW; ++j) {
+      float* gr = gq + (static_cast<int>(rank) * RPC + warp + j * WC) * LBP;
+      gr[lane] = fo0[j];
+      gr[32 + lane] = fo1[j];
+      if (lane == 0) {
+        gr[64] = fm[j];
+        gr[65] = fl[j];
+      }
+    }
+    __threadfence();
+    asm volatile("bar.sync 1, %0;" ::"n"(WC * 32) : "memory");
+    if (tid == 0) s_last = atomicAdd(&tickets[bp * CS + static_cast<int>(rank)], 1) == ncl - 1;
+    asm volatile("bar.sync 1, %0;" ::"n"(WC * 32) : "memory");
+    if (!s_last) return;
+    __threadfence();
+    const float* g0 = gpart + static_cast<long>(bp) * ncl * ROWS * LBP;
+#pragma unroll
+    for (int j = 0; j < RPW; ++j) {
+      const int R = static_cast<int>(rank) * RPC + warp + j * WC;
+      float mm = -1.0e30f;
+      for (int c = 0; c < ncl; ++c) mm = fmaxf(mm, __ldcg(g0 + (c * ROWS + R) * LBP + 64));
+      float l = 0.f, o0 = 0.f, o1 = 0.f;
+      for (int c = 0; c < ncl; ++c) {
+        const float* pr = g0 + (c * ROWS + R) * LBP;
+        const float wt = ex2(__ldcg(pr + 64) - mm);
+        l += wt * __ldcg(pr + 65);
+        o0 += wt * __ldcg(pr + lane);
+        o1 += wt * __ldcg(pr + 32 + lane);
+      }
+      fo0[j] = o0, fo1[j] = o1, fl[j] = l;
+    }
+    if (tid == 0) tickets[bp * CS + static_cast<int>(rank)] = 0;
+  }
+  // ---- 9. RMSNorm x sigmoid(gate), BF16 out
+  const float vsc = *v_scale_p;
+#pragma unroll
+  for (int j = 0; j < RPW; ++j) {
+    const int slot = warp + j * WC;
+    const int R = static_cast<int>(rank) * RPC + slot, tok = R >> 4, hh = R & 15;
+    const float scale = vsc / fl[j];
+    const float o0 = fo0[j] * scale, o1 = fo1[j] * scale;
+    float ss = o0 * o0 + o1 * o1;
+#pragma unroll
+    for (int o = 16; o > 0; o >>= 1) ss += __shfl_xor_sync(FULL, ss, o);
+    const float rn = rsqrtf(ss / 64.f + 1e-5f);
+    const float gt0 = bf16f(gsm[slot * 64 + lane]), gt1 = bf16f(gsm[slot * 64 + 32 + lane]);
+    uint16_t* op = out + (static_cast<long>(b) * L + tok) * hq * 64 + (kv0 * 8 + hh) * 64;
+    op[lane] = f2bf16(o0 * rn / (1.f + __expf(-gt0)));
+    op[32 + lane] = f2bf16(o1 * rn / (1.f + __expf(-gt1)));
+  }
+}
+
+}  // namespace okc_uv4
+
+#define OKC_UV4_VARIANTS(X) X(3, 1, 4) X(3, 1, 8) X(3, 1, 16) X(4, 1, 4) X(4, 1, 8) X(3, 2, 4) X(3, 2, 8) X(3, 2, 16) \
+  X(6, 1, 4) X(6, 1, 8) X(8, 1, 4) X(8, 1, 8)
+
+void uv4(torch::Tensor qkv, torch::Tensor positions, torch::Tensor cache_loc, torch::Tensor inv_freq, torch::Tensor kc,
+         torch::Tensor vc, torch::Tensor k_scale, torch::Tensor v_scale, torch::Tensor page_table, torch::Tensor seqlens,
+         torch::Tensor out, int64_t batch, int64_t hq, int64_t hkv, int64_t max_pages, int64_t page, int64_t window,
+         int64_t rope, double qk_factor, double sm_scale, int64_t stages, int64_t mt, int64_t cs, int64_t ncl,
+         torch::Tensor gpart, torch::Tensor tickets) {
+  auto stream = at::cuda::getCurrentCUDAStream();
+  TORCH_CHECK(hq == 8 * hkv && hkv % 2 == 0, "uv4: 8 query heads per KV head, KV heads in pairs");
+  TORCH_CHECK(ncl >= 1 && (ncl == 1 || (gpart.numel() >= batch * (hkv / 2) * ncl * okc_uv4::ROWS * okc_uv4::LBP &&
+                                        tickets.numel() >= batch * (hkv / 2) * cs)), "uv4: second-level buffers too small");
+  dim3 grid(static_cast<unsigned>(cs), static_cast<unsigned>(batch * (hkv / 2) * ncl));
+  const size_t smem = static_cast<size_t>(stages) * okc_uv4::STAGE_BYTES + okc_uv4::ROWS * okc_uv4::LBP * 4;
+  bool launched = false;
+#define OKC_UV4_LAUNCH(S, M, C)                                                                                    \
+  if (!launched && stages == S && mt == M && cs == C) {                                                            \
+    okc_uv4::uv4_kernel<S, M, C><<<grid, (8 / M + 1) * 32, smem, stream>>>(                                        \
+        reinterpret_cast<const uint16_t*>(qkv.data_ptr()), reinterpret_cast<const long*>(positions.data_ptr()),  \
+        reinterpret_cast<const long*>(cache_loc.data_ptr()), inv_freq.data_ptr<float>(),                        \
+        reinterpret_cast<uint8_t*>(kc.data_ptr()), reinterpret_cast<uint8_t*>(vc.data_ptr()),                   \
+        k_scale.data_ptr<float>(), v_scale.data_ptr<float>(), page_table.data_ptr<int>(), seqlens.data_ptr<int>(), \
+        reinterpret_cast<uint16_t*>(out.data_ptr()), static_cast<int>(hq), static_cast<int>(hkv),               \
+        static_cast<int>(max_pages), static_cast<int>(page), static_cast<int>(window), static_cast<int>(rope),   \
+        static_cast<float>(qk_factor), static_cast<float>(sm_scale), static_cast<int>(ncl), gpart.data_ptr<float>(), \
+        tickets.data_ptr<int>());                                                                                  \
+    launched = true;                                                                                               \
+  }
+  OKC_UV4_VARIANTS(OKC_UV4_LAUNCH)
+#undef OKC_UV4_LAUNCH
+  TORCH_CHECK(launched, "uv4: no variant stages=", stages, " mt=", mt, " cs=", cs);
+  const cudaError_t e = cudaGetLastError();        // surface a refused (cluster) launch here, not later
+  TORCH_CHECK(e == cudaSuccess, "uv4 launch failed: ", cudaGetErrorString(e));
+}
+
+int64_t uv4_setup() {   // once, outside any capture: each variant's ring + receive buffer, 16-CTA clusters
+  int err = 0;
+#define OKC_UV4_SMEM(S, M, C)                                                                                     \
+  err |= cudaFuncSetAttribute(okc_uv4::uv4_kernel<S, M, C>, cudaFuncAttributeMaxDynamicSharedMemorySize,         \
+                              S * okc_uv4::STAGE_BYTES + okc_uv4::ROWS * okc_uv4::LBP * 4);                       \
+  if (C > 8) err |= cudaFuncSetAttribute(okc_uv4::uv4_kernel<S, M, C>, cudaFuncAttributeNonPortableClusterSizeAllowed, 1);
+  OKC_UV4_VARIANTS(OKC_UV4_SMEM)
+#undef OKC_UV4_SMEM
+  (void)cudaGetLastError();
+  return err;
+}
+
+std::vector<int64_t> uv4_attrs(int64_t stages, int64_t mt, int64_t cs) {
+  cudaFuncAttributes a;
+  a.numRegs = -1;
+  a.localSizeBytes = 0;
+  a.sharedSizeBytes = 0;
+#define OKC_UV4_ATTR(S, M, C) \
+  if (stages == S && mt == M && cs == C) cudaFuncGetAttributes(&a, okc_uv4::uv4_kernel<S, M, C>);
+  OKC_UV4_VARIANTS(OKC_UV4_ATTR)
+#undef OKC_UV4_ATTR
+  return {a.numRegs, static_cast<int64_t>(a.localSizeBytes), static_cast<int64_t>(a.sharedSizeBytes)};
+}
+"""
+
+DECL = ("void uv4(torch::Tensor qkv, torch::Tensor positions, torch::Tensor cache_loc, torch::Tensor inv_freq, "
+        "torch::Tensor kc, torch::Tensor vc, torch::Tensor k_scale, torch::Tensor v_scale, torch::Tensor page_table, "
+        "torch::Tensor seqlens, torch::Tensor out, int64_t batch, int64_t hq, int64_t hkv, int64_t max_pages, "
+        "int64_t page, int64_t window, int64_t rope, double qk_factor, double sm_scale, int64_t stages, int64_t mt, "
+        "int64_t cs, int64_t ncl, torch::Tensor gpart, torch::Tensor tickets);\n"
+        "int64_t uv4_setup();\n"
+        "std::vector<int64_t> uv4_attrs(int64_t stages, int64_t mt, int64_t cs);")
+
+
+def render():
+    src = HELPERS + KERNEL.replace("@@PRODUCER@@\n", PRODUCER).replace("@@LOOP@@\n", LOOP)
+    assert "@@" not in src
+    # V4's pieces must use only names UV4 defines
+    for name in ("pt_slot", "issue_pt", "tok(", "full_bar", "empty_bar", "qa[mi]", "new_k +", "new_v +", "fresh"):
+        assert name in src, name
+    return ('"""Generated by make_uv4.py (do not edit): UV4, one-launch sliding verify (see make_uv4.py)."""\n\n'
+            f"CUDA_UV4_SRC = r\"\"\"\n{src}\"\"\"\n\nCUDA_UV4_DECL = {DECL!r}\n")
+
+
+if __name__ == "__main__":
+    text = render()
+    if "--check" in sys.argv:
+        same = os.path.exists(OUT) and open(OUT).read() == text
+        print("cuda_uv4.py up to date" if same else "cuda_uv4.py STALE")
+        sys.exit(0 if same else 1)
+    open(OUT, "w").write(text)
+    print(f"wrote {OUT} ({len(text)} bytes)")

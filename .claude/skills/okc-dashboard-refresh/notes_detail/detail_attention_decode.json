@@ -1,0 +1,740 @@
+[
+ {
+  "job": "410e468727a64f80",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "a0.py",
+  "speedup": 0.994,
+  "name": "A0 recon",
+  "implemented": [
+   "SGLang baseline byte for byte (FA3 path)",
+   "FusedQKNorm, FP8 casts, store_cache, norm-gate as SGLang"
+  ],
+  "worked": [
+   "Gave SGLang per-shape times: sliding 20.3/26.5/31.3 µs decode, full 31.8/199.9/382.2 µs",
+   "Profile showed ~7 kernels per sliding shape; FA3 on full bs16/32 at only ~1.7 TB/s"
+  ],
+  "failed": [],
+  "verdict": "Recon run: 16/16 at 0.994× (CI 0.979-1.009), baseline timings and profile captured."
+ },
+ {
+  "job": "939c49b50f4f4e63",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "",
+  "speedup": 0.762,
+  "name": "v1",
+  "implemented": [
+   "3 Triton kernels: prologue, split-KV attend, combine+norm-gate",
+   "Block-diagonal padded queries, 2 KV heads per program",
+   "FP8 K/V to BF16 in registers"
+  ],
+  "worked": [
+   "Sliding decode 11.7/14.7/19.3 µs, 1.61-1.81× SGLang"
+  ],
+  "failed": [
+   "Full decode 31/223/410 µs, FA3 parity or worse (~1.6 TB/s)",
+   "Verify full bs16 639 µs, bs32 1,218 µs",
+   "Combine at bs1 full 13 µs"
+  ],
+  "verdict": "Wins sliding decode but loses full and verify badly; 0.762× overall."
+ },
+ {
+  "job": "b8c59d13124e40b6",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "lab_l1.py",
+  "speedup": 0.963,
+  "name": "L1 lab (v2 + sweep)",
+  "implemented": [
+   "v2: per-head dots, ~16 programs/SM, 2 stages, one-pass merge",
+   "Sweep of 140 launch settings over 12 shapes"
+  ],
+  "worked": [
+   "Sliding decode 12.2/15.0/22.5 µs",
+   "Sweep: 3 pipeline stages > 2 > 1 on every full shape"
+  ],
+  "failed": [
+   "Full decode 209/394 µs, full verify 365/672 µs",
+   "Full reads stall ~1.6 TB/s whatever the settings; 8 warps always worse"
+  ],
+  "verdict": "v2 timed 0.963×; sweep gave TUNE settings (v2.1) and showed the ~1.6 TB/s stall."
+ },
+ {
+  "job": "d0ee39d19b534734",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "lab_l2.py",
+  "speedup": 1.061,
+  "name": "L2 lab (v2.1 + gather benchmarks)",
+  "implemented": [
+   "v2.1 all-ours with tuned settings",
+   "Triton gather and CUDA load_inline gather microbenchmarks",
+   "Deeper pipeline variants"
+  ],
+  "worked": [
+   "CUDA whole-row gather 3.79 TB/s vs Triton 3.42 TB/s on random rows",
+   "Sd1 9.6 vs 21.0 µs SGLang (2.18×)"
+  ],
+  "failed": [
+   "Verify full 335/649 µs vs SGLang 206/390 µs",
+   "Sv32 36.0 vs 34.5 µs SGLang",
+   "Waited ~25 min in the queue"
+  ],
+  "verdict": "All-ours 1.061×; showed scattered rows are not the limit, our loop is."
+ },
+ {
+  "job": "d65d8d6035394060",
+  "when": "Nov 3",
+  "kind": "scored",
+  "file": "attention/scored/v2.2_submission.py",
+  "speedup": 1.218,
+  "name": "v2.2 scored",
+  "implemented": [
+   "Hybrid dispatch: our Triton kernels on 9 classes",
+   "SGLang path on Sv32, Fv16, Fv32",
+   "Fd16 at 5 stages"
+  ],
+  "worked": [
+   "Sd1 9.8 vs 20.5 µs SGLang (2.09×)",
+   "Fd16 181.1 vs 200.7 µs (1.108×)"
+  ],
+  "failed": [],
+  "verdict": "First scored run, 16/16 at 1.218× (CI 1.200-1.243), our board entry."
+ },
+ {
+  "job": "1400209434b74c2b",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "lab_l3.py",
+  "speedup": 1.224,
+  "name": "L3 lab (Triton ablation)",
+  "implemented": [
+   "v2.2 timed path",
+   "Triton ablation/precision variants vs FP32 torch reference"
+  ],
+  "worked": [
+   "FP8 Q·K cut Fd16 203 to 159 µs and Fd32 439 to 335 µs (-22%)",
+   "Showed 64 B half-row loads cap ~1.7 TB/s (AF13)"
+  ],
+  "failed": [
+   "FP8 Q·K error 7.0e-2 vs 1.7e-3 base",
+   "8 warps always worse (254-264 µs); 2 warps spill",
+   "qk8+pv8 at Fv16 356 vs 264 µs"
+  ],
+  "verdict": "Ablation lab; identified half-row loads as the bandwidth cap, no variant adopted."
+ },
+ {
+  "job": "de34ae747b9b4de0",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "lab_l4.py",
+  "speedup": 1.236,
+  "name": "L4 lab (A5a CUDA decode)",
+  "implemented": [
+   "A5a CUDA decode via load_inline, mma.sync m16n8k16 FP16",
+   "Head-dim permutation, per-head 16 B/8 B lane loads"
+  ],
+  "worked": [
+   "Correct on the GPU first time (1.6-1.7e-3 vs FP32)",
+   "Fd16 187.8 to 176.5 µs, Fd32 367.6 to 318.4 µs"
+  ],
+  "failed": [
+   "Sd1 14.9 to 18.0 µs, Sd32 28.5 to 31.3 µs (worse)",
+   "Per-head 64 B pieces cap ~2 TB/s whatever the occupancy"
+  ],
+  "verdict": "CUDA path proven correct; modest full-decode gain, limited by 64 B requests."
+ },
+ {
+  "job": "588867ec59384cca",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "lab_l5.py",
+  "speedup": 1.231,
+  "name": "L5 lab (A5b + gather engines)",
+  "implemented": [
+   "A5b whole-row loads with stacked heads",
+   "Gather engines: ld, cp.async ring, cp.async.bulk + mbarrier"
+  ],
+  "worked": [
+   "ld whole rows and cp.async ring both 3.79 TB/s on random 128 B rows",
+   "A5b correct (1.6-1.8e-3 vs FP32)"
+  ],
+  "failed": [
+   "A5b Fd16 172.7 µs at only 1.87 TB/s (accumulator in local memory)",
+   "Bulk copies best 3.43 TB/s",
+   "Sd1 19.6 vs 15.0 µs"
+  ],
+  "verdict": "Set the ~3.8 TB/s gather ceiling; A5b slowed by 256 B local memory (AF20)."
+ },
+ {
+  "job": "3d06754f62924a6c",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "lab_l6.py",
+  "speedup": 1.227,
+  "name": "L6 lab (fused decode, pre-fix)",
+  "implemented": [
+   "Fused decode kernel: prologue fold, attention, last-CTA ticket merge, norm-gate",
+   "Atomic ticket reset each call"
+  ],
+  "worked": [
+   "Correct on the GPU (3.5-5.5e-3 vs FP32)",
+   "Tickets back to 0 after every call (graph-safe merge)"
+  ],
+  "failed": [
+   "Sd1 24.5 vs 13.9 µs, Sd32 47.5 vs 28.5 µs",
+   "Fd1 89-209 vs 32 µs; 288 B local; slow sincosf and serial merge"
+  ],
+  "verdict": "Fused kernel works but is slower than the 3-kernel path on all shapes."
+ },
+ {
+  "job": "44d390b369aa434d",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "lab_l7.py",
+  "speedup": null,
+  "name": "L7 lab (verify S2a + fused fixed)",
+  "implemented": [
+   "S2a verify kernel: 16-key cp.async ring, CTA barrier per chunk",
+   "Fused kernel with RoPE table, CTA-wide merge, local 0 B"
+  ],
+  "worked": [
+   "Verify correct (1.6-1.7e-3 vs FP32)",
+   "Fused correct, tickets back to 0"
+  ],
+  "failed": [
+   "Fv16 424 µs, Fv32 721 µs vs SGLang 220/398 µs",
+   "Fv1 67.6 vs Triton 40.3 µs",
+   "Fused Sd1 23.5 vs 14.5 µs; last-CTA merge ~10 µs"
+  ],
+  "verdict": "Neither verify nor fused kernel beat v2.2; no route adopted."
+ },
+ {
+  "job": "38f08b5d53824a5b",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "submission_v3.py",
+  "speedup": 1.281,
+  "name": "v3 check",
+  "implemented": [
+   "v2.2 plus one load_inline module built in the first test call",
+   "A5b CUDA decode on Fd16 (c4w4) and Fd32 (c8w4)"
+  ],
+  "worked": [
+   "Fd16 155.75 µs (1.287×), Fd32 299.7 µs (1.281×)",
+   "CUDA build inside the judge run works, no fallback"
+  ],
+  "failed": [],
+  "verdict": "1.281× (CI 1.262-1.305) vs v2.2 1.218-1.236×."
+ },
+ {
+  "job": "096fc75c637943fe",
+  "when": "Nov 4",
+  "kind": "scored",
+  "file": "attention/scored/v3_submission.py",
+  "speedup": 1.277,
+  "name": "v3 scored",
+  "implemented": [
+   "v2.2 hybrid plus A5b CUDA decode on Fd16 and Fd32"
+  ],
+  "worked": [
+   "1.277× (CI 1.258-1.301) vs 1.218× previous best"
+  ],
+  "failed": [],
+  "verdict": "Our best board entry at the time; board still showed 1.218× right after."
+ },
+ {
+  "job": "5f2899f64d4d4f47",
+  "when": "Nov 4",
+  "kind": "check",
+  "file": "",
+  "speedup": null,
+  "name": "L9 lab (D2 vs A5b)",
+  "implemented": [
+   "D2: A5b compute fed from a per-warp cp.async ring"
+  ],
+  "worked": [
+   "Registers came through: D2 128-152 vs A5b 180"
+  ],
+  "failed": [
+   "Lab aborted before timing: dynamic smem limit above 227 KB minus static smem"
+  ],
+  "verdict": "Run passed with v2.2 timed but the lab hit my smem-limit bug; fixed with per-variant limits."
+ },
+ {
+  "job": "9e3da95f96b74563",
+  "when": "Nov 4 ~01:45",
+  "kind": "check",
+  "file": "",
+  "speedup": null,
+  "name": "L9b lab (D2)",
+  "implemented": [
+   "D2 per-warp cp.async ring decode kernel",
+   "Variants c4/c8, w4, s3/s4"
+  ],
+  "worked": [
+   "D2 correct (1.6-1.7e-3)",
+   "Fd16 155.6 µs (2.08 TB/s) vs A5b 168.8, v2.2 182.3",
+   "Fd32 263.3 µs vs A5b 310.2, v2.2 366.5"
+  ],
+  "failed": [
+   "Fd1 48.0 vs 31.9 µs",
+   "Sd 18.2/24.8/37.6 vs v2.2 14.8/20.5/27.9 µs",
+   "Still only ~2.1-2.5 TB/s (page-table round trip)"
+  ],
+  "verdict": "D2 wins Fd16/Fd32 only; v4 routes those to D2."
+ },
+ {
+  "job": "b551f58db8ac4870",
+  "when": "Nov 4 ~01:00",
+  "kind": "check",
+  "file": "",
+  "speedup": null,
+  "name": "L10 lab (UD one-launch decode)",
+  "implemented": [
+   "UD: fold, ring, cluster merge, second level in one launch",
+   "Cluster 8/16 variants"
+  ],
+  "worked": [
+   "Correct (4.4-5.0e-3), tickets back to 0"
+  ],
+  "failed": [
+   "Slower than v2.2 on all six: Sd1 20.2 vs 14.2 µs, Sd32 44.5 vs 28.4 µs",
+   "Fd1 63.2 vs 32.3 µs; 16-CTA clusters worse than 8",
+   "32 B local from sincosf"
+  ],
+  "verdict": "One launch per layer lost everywhere; longer dependent chain (AF26)."
+ },
+ {
+  "job": "a04f4fdc8d564d3e",
+  "when": "Nov 4 ~01:40",
+  "kind": "check",
+  "file": "",
+  "speedup": null,
+  "name": "L11 lab (S2b verify)",
+  "implemented": [
+   "S2b verify: producer warp + mbarrier 64-key stages",
+   "164-165 registers, local 0"
+  ],
+  "worked": [
+   "Correct (1.7e-3 vs FP32 everywhere)"
+  ],
+  "failed": [
+   "Fv16 331.0 vs SGLang 222.1 µs, Fv32 628.8 vs 403.1 µs",
+   "Sv16 50.2 vs 29.1 µs, Sv32 62.2 vs 41.9 µs",
+   "0.6-1.05 TB/s, compute/latency-bound"
+  ],
+  "verdict": "Correct but slow; no S2b route."
+ },
+ {
+  "job": "0b78d1ea54914775",
+  "when": "Nov 4 ~02:05",
+  "kind": "check",
+  "file": "lab_l12.py",
+  "speedup": null,
+  "name": "L12 lab (D3, UD2)",
+  "implemented": [
+   "D3: page entries carried by the cp.async ring",
+   "UD2: UD with ring prologue before the fold"
+  ],
+  "worked": [
+   "Fd16 125.8 µs (2.60 TB/s) vs D2 155.6, v2.2 182.3",
+   "Fd32 214.0 µs (3.08 TB/s) vs D2 263.3",
+   "UD2 Fd16 144.4 vs UD 199.6 µs"
+  ],
+  "failed": [
+   "Fd1 39.7 vs 31.8 µs",
+   "UD2 not better than v2.2 on sliding or D3 on full; 32 B local"
+  ],
+  "verdict": "Page-table round trip cause confirmed; v4 routes Fd16/Fd32 to D3."
+ },
+ {
+  "job": "1aa30fd812c04957",
+  "when": "Nov 4 ~02:50",
+  "kind": "check",
+  "file": "lab_l13.py",
+  "speedup": null,
+  "name": "L13 lab (PDL A/B)",
+  "implemented": [
+   "PDL late/early on v2.2 Triton chain, all 12 shapes",
+   "D2p/D3p as PDL dependents"
+  ],
+  "worked": [
+   "PDL correct everywhere",
+   "Late trigger: Sd16 20.7 to 19.7, Sd32 28.3 to 27.0, Fd1 32.1 to 31.1 µs",
+   "Sv1 19.6 to 18.5, Sv16 29.1 to 28.2, Sv32 42.0 to 40.7 µs"
+  ],
+  "failed": [
+   "Gains only ~1-1.8 µs per shape, not ~2 µs per boundary",
+   "Early trigger slower on Sd16/Sd32/Fd1",
+   "D3p/D2p under 3%"
+  ],
+  "verdict": "PDL-late chain adopted for v5 on six classes."
+ },
+ {
+  "job": "417925671de1433d",
+  "when": "Nov 4 05:11",
+  "kind": "check",
+  "file": "lab_l14.py",
+  "speedup": 1.224,
+  "name": "L14 lab (S2c)",
+  "implemented": [
+   "S2c: S2b with page entries carried in the ring",
+   "Triton and SGLang paths timed on six verify shapes"
+  ],
+  "worked": [
+   "S2c correct (1.6-1.7e-3 vs FP32)"
+  ],
+  "failed": [
+   "Fv16 327.8 vs S2b 326.8 µs, Fv32 618.5 vs 620.0 µs",
+   "Only 2 CTAs/SM (164 regs x 160 threads)"
+  ],
+  "verdict": "No gain over S2b; verify is compute-bound, not page-table-bound."
+ },
+ {
+  "job": "47db0b38ebaf49ec",
+  "when": "Nov 4 05:41",
+  "kind": "scored",
+  "file": "submission_v5.py",
+  "speedup": 1.406,
+  "name": "v5 scored",
+  "implemented": [
+   "D3 decode kernel on Fd16/Fd32",
+   "PDL-late Triton chain on Sd16, Sd32, Fd1, Sv1, Sv16, Sv32",
+   "SGLang path on Fv16/Fv32"
+  ],
+  "worked": [
+   "Fd16 119.18 vs 202.16 µs (D3 kernel 111.5 µs, 2.95 TB/s)",
+   "Fd32 206.99 vs 387.22 µs (3.27 TB/s)",
+   "Matched model 1.41×"
+  ],
+  "failed": [
+   "PDL chain on Sv32 only parity (34.82 vs 34.64 µs)"
+  ],
+  "verdict": "1.406× (CI 1.385-1.429), then our best."
+ },
+ {
+  "job": "1e06b5935b374b67",
+  "when": "Nov 4 05:52",
+  "kind": "check",
+  "file": "lab_l15.py",
+  "speedup": 1.404,
+  "name": "L15 lab (anatomy)",
+  "implemented": [
+   "v5 timed path byte for byte",
+   "Stamped D3/UD2/S2c anatomy kernels",
+   "Latency/throughput micros, graph cost, Triton chain alone vs chained"
+  ],
+  "worked": [
+   "Cold dependent load 683 cycles; extra kernel in graph +1.3-1.5 µs",
+   "8-CTA cluster launch +0; e4m3 k32 mma same rate as f16 k16",
+   "D3 wave tail costs ~20% (AF33)"
+  ],
+  "failed": [
+   "ex2 f16x2 gives no gain per value (8.9 instr/clk)",
+   "PDL only -0.2 µs on 3 kernels"
+  ],
+  "verdict": "Noise check on v5 (1.404× vs 1.406×); showed kernels are instruction-latency-bound."
+ },
+ {
+  "job": "dee19d24795747fd",
+  "when": "Nov 4 08:24",
+  "kind": "check",
+  "file": "lab_l16.py",
+  "speedup": 1.465,
+  "name": "L16 lab (V4 + UD3 + whole-wave D3)",
+  "implemented": [
+   "V4 FP8 mma.sync verify kernel",
+   "UD3 sliding decode with DSMEM push merge",
+   "D3 whole-wave split on Fd1/Fd16/Fd32",
+   "Wide merge (256-wide tiles)"
+  ],
+  "worked": [
+   "Sd1 UD3 cs16 judge 9.17 µs (2.27× SGLang)",
+   "Fd1 whole-wave D3 judge 18.97 µs (1.64×)",
+   "Fd16 whole-wave D3 judge 108.95 µs",
+   "Fv1 V4 judge 31.29 µs"
+  ],
+  "failed": [
+   "V4 ~0.9-1 TB/s elsewhere: Fv16 348 vs 220 µs, Fv32 680 vs 402 µs",
+   "UD3 on Sd16/Sd32 dropped (self-check artifact)",
+   "Fd32 kept, gain under 3%"
+  ],
+  "verdict": "1.465× (CI 1.443-1.487); routes became v6."
+ },
+ {
+  "job": "ca55d939665d429d",
+  "when": "Nov 4 09:18",
+  "kind": "scored",
+  "file": "submission_v6.py",
+  "speedup": null,
+  "name": "v6 scored (infra error)",
+  "implemented": [
+   "L16's routes: UD3 Sd1, whole-wave D3 Fd1/Fd16, V4 Fv1"
+  ],
+  "worked": [],
+  "failed": [
+   "Infra error on the judge side"
+  ],
+  "verdict": "Refunded, did not count; resubmitted later with the user's go-ahead."
+ },
+ {
+  "job": "941af232a0854535",
+  "when": "Nov 4 10:31",
+  "kind": "check",
+  "file": "lab_l17.py",
+  "speedup": 1.464,
+  "name": "L17 lab (UV4)",
+  "implemented": [
+   "UV4: one launch per sliding verify layer (fold, V4 consumer, DSMEM merge)",
+   "UV4 6/8 stages, Fv16/Fv32, second level on Fv1",
+   "UD3 re-timed on disjoint rows"
+  ],
+  "worked": [
+   "UV4 Sv1 18.1 vs 18.9 µs (1.05×, routed)",
+   "UD3 Sd16 17.5 vs 20.2 µs (1.15×, routed)",
+   "L2-hot probe showed Fv16 consumer-bound (536.8 vs 541.3 µs)"
+  ],
+  "failed": [
+   "Fv16 541 vs 232 µs, Sv32 58.0 vs 41.5 µs, Fv1 second level 65.0 vs 36.6 µs",
+   "32 B local spills; 3-8 stages change nothing"
+  ],
+  "verdict": "UV4 loses everywhere but Sv1; ~+1%, no scored run."
+ },
+ {
+  "job": "f9b4a77bb7b846f1",
+  "when": "Nov 4 10:31",
+  "kind": "scored",
+  "file": "submission_v6.py",
+  "speedup": 1.459,
+  "name": "v6 scored",
+  "implemented": [
+   "UD3 on Sd1",
+   "Whole-wave D3 on Fd1, Fd16, Fd32",
+   "V4 on Fv1",
+   "PDL-late Triton chain; SGLang on Fv16/Fv32"
+  ],
+  "worked": [
+   "Sd 9.31/14.38/21.00 µs vs SGLang 20.64/26.78/31.36",
+   "Fd16 109.33 µs vs 200.77 µs",
+   "Decode1 1.98×, decode16 1.84×, decode32 1.75×"
+  ],
+  "failed": [
+   "Verify16 1.08× and verify32 1.00× (SGLang path there)"
+  ],
+  "verdict": "1.459× (CI 1.437-1.481), our best at the time."
+ },
+ {
+  "job": "2ac5385cbe624877",
+  "when": "Nov 4 11:38",
+  "kind": "check",
+  "file": "lab_l18.py",
+  "speedup": 1.472,
+  "name": "L18 lab (V5 + fa3t)",
+  "implemented": [
+   "V5 consumer: one softmax per 64-key stage, edge-stage masks",
+   "fa3t: FA3 main kernel behind one Triton prologue, num_splits/pack_gqa"
+  ],
+  "worked": [
+   "fa3t Fv16 judge 198.67 vs 205.57 µs (1.035×)",
+   "V5 Fv1 judge 28.33 vs 31.52 µs",
+   "V5 23% faster than V4"
+  ],
+  "failed": [
+   "V5 behind FA3: Fv16 267 vs 232 µs, Fv32 504 vs 402 µs",
+   "Sv16 35.4 vs 28.6 µs; V5 spills, still consumer-bound",
+   "UV4 on Sv1 14.71 vs 13.88 µs PDL, route dropped"
+  ],
+  "verdict": "1.472× (+0.9% over v6); V5 routed on Fv1 and fa3t on Fv16."
+ },
+ {
+  "job": "73941e40d16c49c3",
+  "when": "Nov 4 13:12",
+  "kind": "check",
+  "file": "lab_l19.py",
+  "speedup": 1.471,
+  "name": "L19 lab (V5 anatomy, V5t)",
+  "implemented": [
+   "v8 timed path",
+   "V5 anatomy stamps per 64-key stage",
+   "V5t: V transposed once by the producer warp"
+  ],
+  "worked": [
+   "Anatomy: Q·K ~1066 and P·V ~1031 cycles per stage = ~2/3 of stage time",
+   "L2-hot identical to cold: not memory-bound"
+  ],
+  "failed": [
+   "V5t slower everywhere: Fv16 293-350 vs V5 273-281 µs",
+   "V5 m2 spills 228 B"
+  ],
+  "verdict": "MMA phases, not V layout, are the verify cost (FP8 mma.sync not native)."
+ },
+ {
+  "job": "23a9335acfcc4edf",
+  "when": "Nov 4 13:58",
+  "kind": "check",
+  "file": "lab_l20.py",
+  "speedup": 1.481,
+  "name": "L20 lab (W1 wgmma FP8)",
+  "implemented": [
+   "W1 verify kernel on wgmma FP8 (2 warpgroups, copier, transposers)",
+   "Triton PDL settings sweep on Sv32/Sv16"
+  ],
+  "worked": [
+   "W1 speeds: Fv16 178.3 vs 228.8 µs, Fv32 331.7 vs 401.6 µs",
+   "Sv32 30.0 vs 41.3 µs, Sv16 24.5 vs 28.8 µs; 133 regs, no spills"
+  ],
+  "failed": [
+   "W1 output wrong on every class (error 1.4, uncorrelated), not routed",
+   "No Triton PDL setting >= 3% faster"
+  ],
+  "verdict": "W1 hits target speeds but is numerically wrong; nothing routed."
+ },
+ {
+  "job": "92d44936dbdb4733",
+  "when": "Nov 4",
+  "kind": "check",
+  "file": "lab_l21.py",
+  "speedup": 1.48,
+  "name": "L21 lab (W1 unit test + variants)",
+  "implemented": [
+   "One-warpgroup wgmma e4m3 unit test, 7 variants",
+   "W1 variants: Vt stride 528/512, writer fence on/off"
+  ],
+  "worked": [
+   "Unit test correct (4.7e-5) for SBO 512 and 528, cp.async fences",
+   "wgmma layout reading confirmed right on the GPU"
+  ],
+  "failed": [
+   "W1 still wrong (error 1.4) in all 4 variants on all six classes"
+  ],
+  "verdict": "Fault is in W1's own flow, not per-wgmma layouts."
+ },
+ {
+  "job": "238bfa5a251048b5",
+  "when": "Nov 4 15:41",
+  "kind": "scored",
+  "file": "submission_v8.py",
+  "speedup": 1.4836,
+  "name": "v8 scored",
+  "implemented": [
+   "v6 base",
+   "Sd16 UD3 (8,4,3)",
+   "Fv1 V5 (1,4,1)",
+   "Fv16 fa3t (4, pack_gqa); Sv1 back on PDL"
+  ],
+  "worked": [
+   "1.4836× (CI 1.461-1.510) vs 1.459× previous board entry"
+  ],
+  "failed": [],
+  "verdict": "New board entry for the track."
+ },
+ {
+  "job": "d190d97038c140d7",
+  "when": "Nov 4 16:07",
+  "kind": "check",
+  "file": "lab_l22.py",
+  "speedup": 1.497,
+  "name": "L22 lab (W1 debug dump)",
+  "implemented": [
+   "v8 timed path",
+   "W1 unit test chain 0-3 (chained, accumulate, P pack + Vt order)",
+   "W1 with stage-0 dump on Fv16, Sv16, Fv1"
+  ],
+  "worked": [
+   "Unit CHAIN 0-3 all right on the GPU (4.5e-5 to 4.9e-3)",
+   "W1 stage-0 values right; split 0 partial 0.8-1.1% vs FP32"
+  ],
+  "failed": [],
+  "verdict": "W1's attention core is correct; the fault is outside it (AF45)."
+ },
+ {
+  "job": "2e994b0659da4d84",
+  "when": "Nov 4 17:14",
+  "kind": "scored",
+  "file": "submission_v9.py",
+  "speedup": 1.5655,
+  "name": "v9 scored",
+  "implemented": [
+   "v8 base + W1-N (1 CTA/SM, 4 stages) on Fv1, Fv16, Fv32, Sv16, Sv32",
+   "fa3t and ver5 routes dropped; decode unchanged"
+  ],
+  "worked": [
+   "1.5655x (CI 1.542-1.589) vs 1.484x previous board entry",
+   "Checks 1.581x (L24) and 1.578x (L25); rank 881/1346, leader 3.339x"
+  ],
+  "failed": [],
+  "verdict": "New board entry for the track; still well behind the leader at 3.339x."
+ },
+ {
+  "job": "c98e26a4329c4fab",
+  "when": "Nov 4 18:44",
+  "kind": "scored",
+  "file": "submission_v11.py",
+  "speedup": 1.6102,
+  "name": "v11 scored",
+  "implemented": [
+   "v10 base + kind uw2 with routes Sv1 ('uw2', 6, 0, 16) and Sv16 ('uw2', 4, 1, 4)",
+   "Glue test incl. warm-up drop of a corrupted UW2, lint, compile"
+  ],
+  "worked": [
+   "1.6102x (CI 1.586-1.634) vs 1.5655x previous board entry; L30 check was 1.616x",
+   "Rank 864/1350, leader 3.3389x"
+  ],
+  "failed": [],
+  "verdict": "New board entry for the track; still well behind the leader at 3.3389x."
+ },
+ {
+  "job": "1084355c3e884072",
+  "when": "Nov 4 23:15",
+  "kind": "scored",
+  "file": "attention/scored/v12_submission.py",
+  "speedup": 1.6832,
+  "name": "v12 scored",
+  "implemented": [
+   "v11 + the W3 kernel (kind w3) on full verify 16 / 32: routes Fv16 ('w3', 6, 0, 4, 104), Fv32 ('w3', 6, 1, 4, 104) from L31"
+  ],
+  "worked": [
+   "1.6832x (CI 1.658-1.716), rank 823 / 1355",
+   "full verify 16 157.13 us vs SGLang 205.15 (v11 177.76); full verify 32 293.98 vs 390.64 (v11 338.97)"
+  ],
+  "failed": [],
+  "verdict": "New board entry."
+ },
+ {
+  "job": "01bc09ba1a3e437b",
+  "when": "Nov 5 00:48",
+  "kind": "scored",
+  "file": "attention/scored/v14_submission.py",
+  "speedup": 1.722,
+  "name": "v14 scored",
+  "implemented": [
+   "v13 + UD4 on sliding decode 1 / 16 / 32: row-owner finalize, the new token's k / v loaded at entry; PDL chain kept as the fallback"
+  ],
+  "worked": [
+   "1.7220x (CI 1.696-1.754), rank 799 / 1355",
+   "sliding decode 7.94 / 11.44 / 19.29 us (v12: 9.09 / 12.74 / 20.61)"
+  ],
+  "failed": [],
+  "verdict": "New board entry (was v12 1.6832x)."
+ },
+ {
+  "job": "dd14be703ee04039",
+  "when": "Nov 5 03:36",
+  "kind": "scored",
+  "file": "attention/submission_v15.py",
+  "speedup": 1.7764,
+  "name": "v15 scored",
+  "implemented": [
+   "v14 + UD5 on sliding decode 1 / 16 / 32 (variants (4,3,16), (4,3,8), (4,3,4))",
+   "full decode 1 on dec4 (L46)"
+  ],
+  "worked": [
+   "1.7764x (CI 1.750-1.807), +3.2% over v14 (1.7220x)",
+   "sliding decode 6.86 / 9.86 / 14.32 us (v14 7.94 / 11.44 / 19.29); full decode 1 18.43 (19.77)"
+  ],
+  "failed": [],
+  "verdict": "New board entry (was v14 1.7220x)."
+ }
+]

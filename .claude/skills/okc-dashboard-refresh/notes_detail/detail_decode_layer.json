@@ -1,0 +1,515 @@
+[
+ {
+  "job": "f2316266af9f430a",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "lab_d0.py",
+  "speedup": 1.123,
+  "name": "DE0 (D1)",
+  "implemented": [
+   "SGLang layer + D1: Marlin tile heights 8/16/32 by token count",
+   "SGLang fused post-expert norm at every token count",
+   "Recon lab: ops, gemm and fa3 sections on judge-like inputs"
+  ],
+  "worked": [
+   "D1 vs SGLang: ver32 sliding 610 vs 726 us, ver1 230 vs 260 us",
+   "Lab gave FA3 per shape and GEMM data (DF5, DF6)"
+  ],
+  "failed": [
+   "Lab ops section and small-T qkv/o/pooler GEMM results lost to the 16K output cap",
+   "dec32 unchanged (SGLang already picks height 16 and fused post-norm)"
+  ],
+  "verdict": "Recon check passed 13/13; D1 is 1.123x with the lab data feeding later versions."
+ },
+ {
+  "job": "75435753618b4745",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "lab_de1.py",
+  "speedup": 1.194,
+  "name": "DE1 (v2)",
+  "implemented": [
+   "M11 CUDA expert kernel at < 17 tokens",
+   "FP32 Triton router at <= 8 tokens",
+   "SGLang tiny_gemm_bf16 for unpooler slice at <= 8 tokens",
+   "Compact lab with v2 per-op times"
+  ],
+  "worked": [
+   "v2 1.194x vs D1 1.123x",
+   "ver1 sliding 185 vs 261 us (1.41x)",
+   "router rel err 3.2e-7, M11 vs Marlin 5.7e-3"
+  ],
+  "failed": [
+   "dec32 and ver32 unchanged (Marlin path, 1.00x at dec32)"
+  ],
+  "verdict": "All three swaps passed their self-checks and lifted the layer to 1.194x."
+ },
+ {
+  "job": "c66d6af1cc44452a",
+  "when": "Nov 3",
+  "kind": "scored",
+  "file": "decode_layer/scored/submission_v2.c66d6af1cc44452a.py",
+  "speedup": 1.185,
+  "name": "v2 scored",
+  "implemented": [
+   "Same code DE1 timed minus the lab",
+   "M11 experts at < 17 tokens",
+   "FP32 Triton router at <= 8 tokens",
+   "tiny_gemm unpooler slice"
+  ],
+  "worked": [
+   "Scored 1.185x (CI 1.167-1.202), 13/13, nothing flagged"
+  ],
+  "failed": [],
+  "verdict": "First scored run; 1.185x would rank about 1,112 of 1,234 on the board."
+ },
+ {
+  "job": "d38884ec6e1249f0",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "lab_de2.py",
+  "speedup": 1.186,
+  "name": "DE2",
+  "implemented": [
+   "Timed path = v2",
+   "X5 skinny GEMM: bulk-copy ring, mma.sync, fragment-ordered weights",
+   "X10 12-bit lossless dense weights (lab only)"
+  ],
+  "worked": [
+   "X5 correct on GPU (worst 1.8e-6), no fault or hang",
+   "Unpooler slice T1 4.6 vs cuBLAS 6.1 us"
+  ],
+  "failed": [
+   "X5 slower than cuBLAS elsewhere (qkv T1 14.5 vs 12.1 us)",
+   "12-bit decode slower still (qkv 26.7 us)"
+  ],
+  "verdict": "Lab only: X5 is correct but does not beat cuBLAS; timed v2 scored 1.186x."
+ },
+ {
+  "job": "d1431a0c37b04f7c",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "lab_de3.py",
+  "speedup": null,
+  "name": "DE3",
+  "implemented": [
+   "Timed path = v2",
+   "X5 v2: weights, tile bases and token rows all by bulk copy into 4-stage ring",
+   "Loader-only ceiling mode"
+  ],
+  "worked": [
+   "X5 v2 beats cuBLAS at 1-8 tokens: qkv 10.2 vs 12.0 us, pooler 17.0 vs 20.0 us",
+   "Loader-only ceiling 3.99-4.25 TB/s"
+  ],
+  "failed": [
+   "Run marked failed (no score): verify 32 full routing near-tie on recheck (DF17)",
+   "12-bit decode-bound: qkv 15.6 us, pooler 25.3 us"
+  ],
+  "verdict": "Judge marked the run failed on a routing near-tie in the timed v2 path; the lab data was still useful."
+ },
+ {
+  "job": "91f7b1d922154b91",
+  "when": "Nov 3-4",
+  "kind": "check",
+  "file": "lab_de4.py",
+  "speedup": 1.18,
+  "name": "DE4",
+  "implemented": [
+   "Timed path = v2",
+   "X5 v3: k-step pairs, in-kernel BF16 output via last arriver",
+   "Workspace and counter zero-restore check"
+  ],
+  "worked": [
+   "X5 v3 correct (worst 1.7e-3) and workspace/counters clean on repeat calls",
+   "Timed v2 scored 1.180x"
+  ],
+  "failed": [
+   "As a full op only ties cuBLAS: qkv 12.7 vs 12.5 us, pooler 19.7 vs 20.2 us",
+   "o-proj 10.6 vs 5.6 us",
+   "12-bit qkv 16.1 us (raw-tile stalls)"
+  ],
+  "verdict": "Standalone X5 does not beat cuBLAS enough to matter; value only inside fused kernels."
+ },
+ {
+  "job": "2887af7404324f6d",
+  "when": "Nov 4",
+  "kind": "check",
+  "file": "lab_de5.py",
+  "speedup": 1.224,
+  "name": "DE5 (v3)",
+  "implemented": [
+   "MoE session's E3c M11 with lab-picked configs per token class",
+   "X7 L2 prefetch of o + pooler head after qkv",
+   "FP32 router rewrite, Triton local ids, Triton pre-expert norm",
+   "tiny_gemm unpooler slice"
+  ],
+  "worked": [
+   "v3 1.224x vs v2 1.194x",
+   "M11 vs Marlin: 1 tok 35.6 vs 53.3 us, 8 tok 86.2 vs 105.8, 16 tok 108.0 vs 135.3, 32 tok 131.9 vs 146.8"
+  ],
+  "failed": [
+   "X7 L2 prefetch gained nothing (equal or slower at 16/33/50 MB)",
+   "v3 router 16.6 us at 1 token vs F.linear 5.9 us"
+  ],
+  "verdict": "M11 won every class on decode routing; prefetch and the router rewrite did not help."
+ },
+ {
+  "job": "d48630d6950a4589",
+  "when": "Nov 4",
+  "kind": "check",
+  "file": "lab_de6.py",
+  "speedup": 1.336,
+  "name": "DE6 (v4)",
+  "implemented": [
+   "Attention session's kernel as attention segment",
+   "bf16_proj session's dense kernels for qkv/o/pooler/unpooler/router",
+   "Lab picks att x pj mode per case",
+   "v3's M11 and glue"
+  ],
+  "worked": [
+   "v4 1.336x vs v3 1.224x",
+   "dec1 sliding 134.5 -> 115.0 us with both drop-ins",
+   "dec32 full 576.9 -> 479.8 us",
+   "Update errors fell from 6-7e-2 to ~1e-2"
+  ],
+  "failed": [
+   "ver16 full, ver32 sliding/full: drop-ins off (no gain)",
+   "Attention falls back to FA3 at 128/256 tokens"
+  ],
+  "verdict": "Sibling drop-ins gave the big jump to 1.336x; large-batch loads unchanged."
+ },
+ {
+  "job": "cd3f31eb7045452a",
+  "when": "Nov 4 06:35",
+  "kind": "scored",
+  "file": "decode_layer/scored/submission_v4.py",
+  "speedup": 1.356,
+  "name": "v4 scored",
+  "implemented": [
+   "Clean v4 = DE6 code with its V4_MODE table hardcoded",
+   "Attention + bf16_proj drop-ins, M11 experts"
+  ],
+  "worked": [
+   "Scored 1.356x (CI 1.336-1.376), 13/13",
+   "dec1 1.706 / 1.529, dec16 1.414 / 1.354"
+  ],
+  "failed": [
+   "dec32 sliding 1.205x, ver32 1.164 / 1.113 stayed low"
+  ],
+  "verdict": "Scored 1.356x, board rank about 918 vs leader 2.540x."
+ },
+ {
+  "job": "ea8f163a7bb84c5d",
+  "when": "Nov 4 06:47",
+  "kind": "check",
+  "file": "lab_de7.py",
+  "speedup": 1.338,
+  "name": "DE7",
+  "implemented": [
+   "v5 = v4 + L8 next-task L2 prefetch in M11 (lab-chosen)",
+   "New table classes incl. 33-64 on Marlin",
+   "Whole-layer revert gate"
+  ],
+  "worked": [
+   "Timed path equal to v4: 1.338x"
+  ],
+  "failed": [
+   "Prefetch loses: T8 GEMM1 58 -> 65 us, T32 73 -> 82 us",
+   "M11 still loses to Marlin at 128/256 (T128 337.8 vs 333.1 us, T256 491.7 vs 463.5 us)"
+  ],
+  "verdict": "L8 prefetch thrashes the 60 MB L2; every base config kept, so same score as v4."
+ },
+ {
+  "job": "0b8bc65fab0c4462",
+  "when": "Nov 4 07:28",
+  "kind": "check",
+  "file": "lab_de8.py",
+  "speedup": 1.37,
+  "name": "DE8 (v6)",
+  "implemented": [
+   "Attention v5 (PDL chain, D3 full decode 16/32)",
+   "bf16_proj v4 (library winners at 8/128, P9 router at 16)",
+   "(router, 8) pinned to FMA kernel with FP32 input",
+   "M11 with DE5 table"
+  ],
+  "worked": [
+   "v6 1.370x vs v4 scored 1.356x (+1.0%)",
+   "Full decode 16/32 gains +9.7% / +15.7%",
+   "dec32 full 605.2 -> 418.8 us"
+  ],
+  "failed": [
+   "Blunder gate dropped att+pj at ver1 full (165.5 vs 174.7 us picked)",
+   "Sliding shapes within ~1.5% noise"
+  ],
+  "verdict": "Passed 13/13 at 1.370x; below the +3% bar so not submitted."
+ },
+ {
+  "job": "6d043f8d93604684",
+  "when": "Nov 4 07:47",
+  "kind": "check",
+  "file": "lab_de9.py",
+  "speedup": 1.371,
+  "name": "DE9 (v7)",
+  "implemented": [
+   "v6 + L9 L2 staging (o, active experts' w13/w2, unpooler slice)",
+   "Lab re-picks modes then staging",
+   "Staging kernels for byte ranges and experts"
+  ],
+  "worked": [
+   "Timed path equal to v6: 1.371x"
+  ],
+  "failed": [
+   "L9 gained < 1% on all 12 shapes; nothing installed"
+  ],
+  "verdict": "L2 staging in idle windows does not pay; score equals v6."
+ },
+ {
+  "job": "080d8d5bab60469d",
+  "when": "Nov 4 07:56",
+  "kind": "check",
+  "file": "lab_de10.py",
+  "speedup": 1.374,
+  "name": "DE10 (v8)",
+  "implemented": [
+   "v7 + L10 pooler/unpooler first-fraction staging",
+   "Modes gate 0.6",
+   "Staging search incl. L10"
+  ],
+  "worked": [
+   "Same v6 code measured 1.374x (CI 1.354-1.395)"
+  ],
+  "failed": [
+   "No staging picked (pool / unp < 1%)"
+  ],
+  "verdict": "No gain from L10; v6-equivalent code now measured 1.370/1.371/1.374."
+ },
+ {
+  "job": "4c98f6f1c4374934",
+  "when": "Nov 4 08:44",
+  "kind": "check",
+  "file": "lab_de11.py",
+  "speedup": 1.365,
+  "name": "DE11",
+  "implemented": [
+   "Clean v7 + M11 CTAs-per-SM search (3-8) per instance",
+   "128/256 M11 vs Marlin test",
+   "Whole-layer revert gate"
+  ],
+  "worked": [
+   "T1 stages 37.8 vs 39.3 us end to end in isolation"
+  ],
+  "failed": [
+   "Layer got 1.6% slower with the T1 pick, reverted",
+   "T128 M11 305.6 vs Marlin 306.4 us (tie), T256 472.8 vs 459.2 us"
+  ],
+  "verdict": "M11 configs are already at their optimum; score 1.365x within the v6 spread."
+ },
+ {
+  "job": "0dcf0c8ed2494552",
+  "when": "Nov 4 09:24",
+  "kind": "scored",
+  "file": "decode_layer/scored/submission_v7.py",
+  "speedup": 1.364,
+  "name": "v7 scored",
+  "implemented": [
+   "Clean v7 = DE9's timed path with its picks",
+   "Attention v5 + bf16_proj v4 + M11 (E3c)"
+  ],
+  "worked": [
+   "Scored 1.364x (CI 1.344-1.385), +0.6% over v4's 1.356x",
+   "dec1 1.648 / 1.528, dec16 1.398 / 1.463"
+  ],
+  "failed": [
+   "dec32 sliding 1.144x (variance, DF33)"
+  ],
+  "verdict": "Marginal +0.6% over v4; the siblings' newer kernels were not yet embedded."
+ },
+ {
+  "job": "8ca776512a3b4b7a",
+  "when": "Nov 4 14:07",
+  "kind": "check",
+  "file": "lab_de12.py",
+  "speedup": 1.412,
+  "name": "DE12 (v10)",
+  "implemented": [
+   "Attention v6 + bf16_proj v6 (12-bit lossless dense weights)",
+   "MoE's PDL option (GEMM2 + post-norm PDL)",
+   "Lab picks PDL then re-picks modes"
+  ],
+  "worked": [
+   "1.412x vs board 1.364x (+3.5%)",
+   "dec1 sliding 103.2 -> 100.5 us, full 117.9 -> 109.4 us",
+   "dec16 full 297.6 -> 278.4 us"
+  ],
+  "failed": [
+   "PDL -1.48% in lab, below the 1.5% bar: installed nowhere",
+   "dec32 sliding 233.2 -> 234.4 us (no gain)"
+  ],
+  "verdict": "Siblings' re-embed gave +3.5%; clean v10 proposed for a scored run."
+ },
+ {
+  "job": "2e3377ba2dad4be7",
+  "when": "Nov 4 15:46",
+  "kind": "scored",
+  "file": "decode_layer/scored/submission_v10.py",
+  "speedup": 1.4,
+  "name": "v10 scored",
+  "implemented": [
+   "Clean v10 = DE12's timed code with its picks",
+   "Attention v6 + bf16_proj v6",
+   "M11 E3c with PDL path code (V10_PDL empty)"
+  ],
+  "worked": [
+   "Scored 1.400x (CI 1.379-1.421x), +2.6% over v7's 1.364x",
+   "dec1 1.695 / 1.627, dec16 1.460 / 1.603"
+  ],
+  "failed": [
+   "ver16/ver32 stay 1.261/1.128 and 1.182/1.113 (Marlin-bound)"
+  ],
+  "verdict": "Best scored run: 1.400x, rank 898 of 1,272 vs leader 2.576x."
+ },
+ {
+  "job": "9dbcaa2194664f0c",
+  "when": "Nov 4 16:01",
+  "kind": "check",
+  "file": "lab_de13.py",
+  "speedup": 1.394,
+  "name": "DE13 (v11)",
+  "implemented": [
+   "v10 + attention v8 + bf16_proj v7a router configs",
+   "PDL re-picked at 0.5% bar: {5: post, 9: GEMM2 + post}",
+   "Modes re-picked per case"
+  ],
+  "worked": [
+   "PDL -1.3% / -1.0% in the lab (classes 1-4 / 5-8)"
+  ],
+  "failed": [
+   "No gain over v10 (1.394x vs 1.400x scored, 1.412x DE12)",
+   "Modes picked attention off at sliding verify 1 on routing noise (169.1 vs 158.7 us)"
+  ],
+  "verdict": "Gains below routing noise (+/-3-5% per shape); motivated routing-locked lab comparisons in DE14."
+ },
+ {
+  "job": "ba18a298e7be4905",
+  "when": "Nov 4 17:05",
+  "kind": "scored",
+  "file": "decode_layer/scored/submission_v13.py",
+  "speedup": 1.4315,
+  "name": "v13 scored",
+  "implemented": [
+   "v10 + attention v8 + bf16_proj v7a router configs",
+   "PDL GEMM2 / post-norm at <=8 tokens",
+   "SGLang cluster norm-residual boundaries at <=32 tokens",
+   "One torch.cat instead of F.pad at <=8 tokens"
+  ],
+  "worked": [
+   "Scored 1.432x (CI 1.410-1.453x), +2.3% over v10's 1.400x, 13/13",
+   "dec1 1.781 / 1.713, dec16 1.511 / 1.615"
+  ],
+  "failed": [
+   "ver16/ver32 only 1.241 / 1.175 and 1.192 / 1.114 (experts Marlin at 16/32 verify)",
+   "dec32 sliding 1.189x"
+  ],
+  "verdict": "Best scored run: 1.432x, about rank 878 of 1,273 vs leader 2.576x."
+ },
+ {
+  "job": "8518b385bed94685",
+  "when": "Nov 4 18:41",
+  "kind": "scored",
+  "file": "decode_layer/scored/submission_v16.py",
+  "speedup": 1.445,
+  "name": "v16 scored",
+  "implemented": [
+   "v13 + side-stream glue + PDL at 9-16 tokens",
+   "MoE E19/E20 M19 path at 17-32 and 65-191 tokens",
+   "P9 dropped, G2P off"
+  ],
+  "worked": [
+   "Scored 1.445x (CI 1.423-1.466x), 13/13, +1.0% over v13's 1.432x",
+   "New board entry, rank 869 of 1,274",
+   "dec1 1.821 / 1.738, dec16 1.549 / 1.634"
+  ],
+  "failed": [
+   "ver16/ver32 only 1.265 / 1.186 and 1.176 / 1.105",
+   "dec32 sliding 1.192x"
+  ],
+  "verdict": "Best scored run: 1.445x, rank 869 of 1,274 vs leader 2.576x."
+ },
+ {
+  "job": "91b6d9813a934d76",
+  "when": "Nov 4 19:06",
+  "kind": "scored",
+  "file": "decode_layer/scored/submission_v17.py",
+  "speedup": 1.503,
+  "name": "v17 scored",
+  "implemented": [
+   "v16 picks + MoE E25's M11b experts at 1-16 tokens (1-32 lab-tested)",
+   "M19 kept at 17-32 and 65-191 tokens",
+   "Same timed path as DE20 check (bb831464, 1.507x)"
+  ],
+  "worked": [
+   "Scored 1.503x (CI 1.481-1.526x), 13/13, +4.0% over v16's 1.445x",
+   "New board entry, rank 832 of 1,274",
+   "dec1 1.918 / 1.849, dec16 1.602 / 1.724, ver1 1.857 / 1.785"
+  ],
+  "failed": [
+   "dec32 sliding 1.198x (full 1.509x)",
+   "ver16 1.336 / 1.233 and ver32 1.191 / 1.131 still low"
+  ],
+  "verdict": "Best scored run: 1.503x, rank 832 of 1,274 vs leader 2.576x."
+ },
+ {
+  "job": "adfbe8adcfbf4291",
+  "when": "Nov 4 20:55",
+  "kind": "scored",
+  "file": "decode_layer/scored/submission_v18.py",
+  "speedup": 1.513,
+  "name": "v18 scored",
+  "implemented": [
+   "DE21's timed path: routing-locked modes, every case att1 pj1",
+   "verify 32 moved from SGLang's attention to attention v9's W1-N"
+  ],
+  "worked": [
+   "1.513x (CI 1.490-1.536), rank 831 of 1,277",
+   "full verify 1 157.9 -> 147.4 us (-6.7%), full verify 16 573.5 -> 553.3 (-3.5%), full verify 32 955.4 -> 909.9 (-4.8%), sliding verify 32 614.1 -> 604.5 (-1.6%)"
+  ],
+  "failed": [],
+  "verdict": "New board entry (was v17 1.503x)."
+ },
+ {
+  "job": "473789bff80a4e7a",
+  "when": "Nov 5 01:52",
+  "kind": "scored",
+  "file": "decode_layer/scored/submission_v20.py",
+  "speedup": 1.526,
+  "name": "v20 scored",
+  "implemented": [
+   "v18 + attention v14's kernels: W3b on full verify 16 / 32 and UD4 on sliding decode (DE23's timed path)"
+  ],
+  "worked": [
+   "1.526x (CI 1.503-1.549), rank 831 of 1,288",
+   "full verify 16 553.3 -> 535.1 us (-3.3%), full verify 32 909.9 -> 861.9 (-5.3%), sliding decode 1 88.9 -> 86.8 (-2.4%)"
+  ],
+  "failed": [
+   "sliding decode 16 165.5 -> 173.2 us (+4.7%), with SGLang's own time up 257.2 -> 263.7 in the same runs"
+  ],
+  "verdict": "New board entry (was v18 1.513x)."
+ },
+ {
+  "job": "1627612aed514976",
+  "when": "Nov 5 02:21",
+  "kind": "scored",
+  "file": "decode_layer/scored/submission_v20b.py",
+  "speedup": 1.541,
+  "name": "v20b scored",
+  "implemented": [
+   "v20 + MoE E25's M19 instead of Marlin at 192-320 tokens (verify 32), on the user's call despite the labs' 3% bar (three labs: -2.3 / -2.0 / -2.1% whole layer)"
+  ],
+  "worked": [
+   "1.541x (CI 1.518-1.564), rank 816 of 1,289",
+   "sliding verify 32 607.3 -> 577.8 us (-4.9%), full verify 32 861.9 -> 831.0 (-3.6%)"
+  ],
+  "failed": [],
+  "verdict": "New board entry (was v20 1.526x)."
+ }
+]

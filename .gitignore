@@ -1,0 +1,237 @@
+# --- this project -----------------------------------------------------------
+
+# environment and OS
+.venv/
+.DS_Store
+
+# third-party code and documents we don't redistribute
+serving/sglang/
+docs/refs/
+terms.pdf
+
+# files for sharing with other tools, duplicates of tracked files
+chatgpt_bundle/
+chatgpt_bundle 2/
+chatgpt_bundle.zip
+
+# run profiles: keep the .txt summaries and the .json of scored runs; skip the other .json and all .log
+**/profiles/*.json
+!attention/profiles/submission.d65d8d6035394060.json
+!attention/profiles/submission_v11.c98e26a4329c4fab.json
+!attention/profiles/submission_v12.1084355c3e884072.json
+!attention/profiles/submission_v14.01bc09ba1a3e437b.json
+!attention/profiles/submission_v15.dd14be703ee04039.json
+!attention/profiles/submission_v17.f033cf3eca5144e1.json
+!attention/profiles/submission_v18.0b3cd2ffe25f497e.json
+!attention/profiles/submission_v19.cf0f3a792b1e421d.json
+!attention/profiles/submission_v3.096fc75c637943fe.json
+!attention/profiles/submission_v5.47db0b38ebaf49ec.json
+!attention/profiles/submission_v6.f9b4a77bb7b846f1.json
+!attention/profiles/submission_v8.238bfa5a251048b5.json
+!attention/profiles/submission_v9.2e994b0659da4d84.json
+!decode_layer/profiles/submission_v10.2e3377ba2dad4be7.json
+!decode_layer/profiles/submission_v13.ba18a298e7be4905.json
+!decode_layer/profiles/submission_v16.8518b385bed94685.json
+!decode_layer/profiles/submission_v17.91b6d9813a934d76.json
+!decode_layer/profiles/submission_v18.adfbe8adcfbf4291.json
+!decode_layer/profiles/submission_v2.c66d6af1cc44452a.json
+!decode_layer/profiles/submission_v20.473789bff80a4e7a.json
+!decode_layer/profiles/submission_v20b.1627612aed514976.json
+!decode_layer/profiles/submission_v22.610feb6388104e12.json
+!decode_layer/profiles/submission_v23.c053f490daf94a1f.json
+!decode_layer/profiles/submission_v4.cd3f31eb7045452a.json
+!decode_layer/profiles/submission_v7.0dcf0c8ed2494552.json
+!moe/profiles/submission.87c8a84e5a174de5.json
+!moe/profiles/submission_m11.513d25205a2549c5.json
+!moe/profiles/submission_m11.ca7708071dc34230.json
+!moe/profiles/submission_m13t.5196abee336b4b4d.json
+!moe/profiles/submission_m13t_e12.7fbba6290a8f4f23.json
+!moe/profiles/submission_m13t_e13.5696487fbff440e1.json
+!moe/profiles/submission_m13t_e14.2e2f531a88e4476c.json
+!moe/profiles/submission_m13t_e15.d5c0abd9ce0142ae.json
+!moe/profiles/submission_m13t_e16.f43d80450e854ece.json
+!moe/profiles/submission_m13t_e19.9df74163eea14095.json
+!moe/profiles/submission_m13t_e24.aaab9119017148a6.json
+!moe/profiles/submission_m13t_e25.b5da76a6e7cb4267.json
+!moe/profiles/submission_m13t_e28.0f7feacab3b74f7f.json
+!moe/profiles/submission_m13t_e35.2916d19a0de141cc.json
+!moe/profiles/submission_m13t_e36.73e71876d57147a7.json
+!moe/profiles/submission_m13t_e41.eb9985e4e45747b6.json
+!moe/profiles/submission_m13t_e43.ec35479bf1ff460f.json
+!moe/profiles/submission_m13t_e47.004033e3bd91445a.json
+!moe/profiles/submission_m13t_e48.858eada4c3c948d4.json
+!moe/profiles/submission_m13t_e49.6edb977e1d414efc.json
+!moe/profiles/submission_m13t_e50.a696375955334e17.json
+!moe/profiles/submission_m13t_e9.1ed851a17965469a.json
+!prefill_layer/profiles/submission.8eb7a168b38743a1.json
+!prefill_layer/profiles/submission.fb950ba2fd1f47d5.json
+!prefill_layer/profiles/v5_scored.c8adfdf28f1f4d2b.json
+!prefill_layer/profiles/v7g_glue2.cb48ffc22c9341ec.json
+!profiles/096fc75c637943fe.json
+!profiles/0d1dc429eebf455f.json
+!profiles/1ed851a17965469a.json
+!profiles/47db0b38ebaf49ec.json
+!profiles/4df483b4c4254517.json
+!profiles/513d25205a2549c5.json
+!profiles/5196abee336b4b4d.json
+!profiles/87c8a84e5a174de5.json
+!profiles/8eb7a168b38743a1.json
+!profiles/aae716920c1d403f.json
+!profiles/c66d6af1cc44452a.json
+!profiles/ca7708071dc34230.json
+!profiles/d65d8d6035394060.json
+!profiles/fb950ba2fd1f47d5.json
+!proj/profiles/submission_v1.4df483b4c4254517.json
+!proj/profiles/submission_v12.e18ba7be45d943d7.json
+!proj/profiles/submission_v14.3e256749d6f443ea.json
+!proj/profiles/submission_v16.f7271a9add2740fd.json
+!proj/scored/profiles/submission_v10.7779f243a8f14f56.json
+!proj/scored/profiles/submission_v11b.ee5b3e6584ef4da6.json
+!proj/scored/profiles/submission_v2.aae716920c1d403f.json
+!proj/scored/profiles/submission_v4.0d1dc429eebf455f.json
+!proj/scored/profiles/submission_v6.33748bdba9694bcb.json
+
+# --- GitHub's default Python .gitignore -------------------------------------
+# (the template's `parts/` line is left out: decode_layer/parts/ is source code)
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[codz]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py.cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv / poetry / pdm
+#Pipfile.lock
+#poetry.lock
+#pdm.lock
+.pdm.toml
+.pdm-python
+.pdm-build/
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.envrc
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# Ruff
+.ruff_cache/
+
+# PyPI configuration file
+.pypirc

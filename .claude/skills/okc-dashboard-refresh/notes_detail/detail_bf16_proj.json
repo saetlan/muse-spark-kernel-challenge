@@ -1,0 +1,610 @@
+[
+ {
+  "job": "eb62bbc5e6d147fa",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "proj/lab_e1.py",
+  "speedup": 1.117,
+  "name": "PE1 Triton/library recon lab",
+  "implemented": [
+   "Triton swap kernel sweep (~1,100 configs) for m<=32",
+   "Triton gemm kernel sweep for m>=128",
+   "router hi+lo fused kernel (MODE 1) and exact FP32 MODE 2",
+   "image kernels hopper_bf16_gemv and tiny_gemm_bf16 A/B"
+  ],
+  "worked": [
+   "router m>=8 1.32-2.23x vs SGLang",
+   "unpooler m1 1.66x (tiny_gemm)",
+   "pooler m1-32 1.08-1.12x",
+   "o m1 1.11x (gemv)"
+  ],
+  "failed": [
+   "Triton gemm kernel at m=128/256 0.60-0.91x of cuBLAS",
+   "image kernels 3-30x slower on big shapes; JIT 20-40 s each"
+  ],
+  "verdict": "Lab run: 13 of 30 shapes won; most shapes still tie SGLang's cuBLAS."
+ },
+ {
+  "job": "4df483b4c4254517",
+  "when": "Nov 3",
+  "kind": "scored",
+  "file": "proj/submission_v1.py",
+  "speedup": 1.117,
+  "name": "v1",
+  "implemented": [
+   "baseline + PE1's 13 chosen shapes as constants",
+   "warm-up in prepare() compiling chosen kernels before capture",
+   "router hi+lo kernel at m>=8",
+   "hopper_bf16_gemv / tiny_gemm / Triton swap kernel"
+  ],
+  "worked": [
+   "per-shape numbers match PE1 within noise",
+   "prepare() only 19.9 s"
+  ],
+  "failed": [],
+  "verdict": "First scored entry, 9/9 tests, 1.117x (CI 1.100-1.134)."
+ },
+ {
+  "job": "1d761e3043c74f50",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "proj/lab_e2.py",
+  "speedup": 1.187,
+  "name": "PE2 fma GEMV lab",
+  "implemented": [
+   "v1 + _fma_kernel (register-resident CUDA-core GEMV) sweep",
+   "router exact FP32 at m1/m8",
+   "BF16 layers at m1 and m8"
+  ],
+  "worked": [
+   "router m1 10.34 -> 3.85 us (2.69x)",
+   "router m8 26.06 -> 9.42 us (2.77x)",
+   "qkv m1 14.13 -> 11.37 us (1.24x)",
+   "o m1 1.25x; pooler m1 21.79 -> 17.83 us (3.76 TB/s)"
+  ],
+  "failed": [
+   "BF16 m8 0.42-0.72x",
+   "router m16/32 0.38-0.56x of hi+lo kernel",
+   "unpooler m1 0.98x of tiny_gemm"
+  ],
+  "verdict": "fma GEMV won 5 shapes at m=1/8; loses at m>=8 on BF16 layers."
+ },
+ {
+  "job": "aae716920c1d403f",
+  "when": "Nov 3",
+  "kind": "scored",
+  "file": "proj/scored/submission_v2.py",
+  "speedup": 1.192,
+  "name": "v2",
+  "implemented": [
+   "v1 + PE2's five _fma_kernel winners",
+   "router m1/m8, qkv m1, o m1, pooler m1",
+   "15 chosen shapes"
+  ],
+  "worked": [
+   "router m1 4.10 us (2.56x)",
+   "router m8 9.47 us (2.77x)",
+   "qkv/o/pooler m1 1.21-1.23x"
+  ],
+  "failed": [],
+  "verdict": "Scored 1.192x (CI 1.174-1.210), 9/9 tests; prepare 10.7 s."
+ },
+ {
+  "job": "9b4420a835d84b81",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "proj/lab_e3.py",
+  "speedup": 1.224,
+  "name": "PE3 recon lab (libraries + microbenchmarks)",
+  "implemented": [
+   "library A/B: FlashInfer mm_bf16/tinygemm, DeepGEMM bf16_gemm_nt, SGLang Muse router",
+   "CUDA microbenchmarks (streams, bulk rings, empty kernel, DSMEM, PRMT)"
+  ],
+  "worked": [
+   "unpooler m8 FlashInfer tinygemm 6.88 -> 4.76 us (1.45x)",
+   "pooler m128 DeepGEMM native 25.58 -> 21.60 us (1.18x)",
+   "qkv m8 FlashInfer auto 1.12x"
+  ],
+  "failed": [
+   "everything else ties cuBLAS (0.92-1.01x)",
+   "microbenchmark lines lost: autotuner logs filled the 16 KB tail"
+  ],
+  "verdict": "Libraries don't close the gap; v3 = v2 + four library winners."
+ },
+ {
+  "job": "4b837ad49d514d6d",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "proj/lab_e4.py",
+  "speedup": 1.221,
+  "name": "PE4 P9 swap-AB mma.sync lab",
+  "implemented": [
+   "P9: one CUDA mma.sync m16n8k16 kernel for m<=32, fragment-order weights",
+   "register ring, x staged in smem, cluster DSMEM split-K",
+   "55 template instances"
+  ],
+  "worked": [
+   "correct everywhere (0 wrong)",
+   "router m8 1.32x (10.51 vs 14.02 lab us)"
+  ],
+  "failed": [
+   "0.3-0.9x of v3 elsewhere, 0.5-2.5 TB/s",
+   "x staging before loop serialized; some CS=8 launches invalid argument"
+  ],
+  "verdict": "P9 v1 correct but slow; only router m8 wins."
+ },
+ {
+  "job": "24e92c2836b54db5",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "proj/lab_e5.py",
+  "speedup": 1.228,
+  "name": "PE5 P9 v2 lab",
+  "implemented": [
+   "P9 v2: no x staging, K permuted per 64-chunk, x loads from L2 into register ring",
+   "50 instances"
+  ],
+  "worked": [
+   "router m8 26.16 -> 5.31 us (4.93x)",
+   "router m16 14.85 -> 5.78 us (2.57x)",
+   "pooler m16 40.4 -> 24.8 lab us vs PE4"
+  ],
+  "failed": [
+   "still trails v3 on BF16 layers: 2.5-2.8 TB/s, 0.6-2.1 TB/s at m32 and o"
+  ],
+  "verdict": "P9 v2 is the best router kernel at m8/m16; not bandwidth-bound on BF16 layers."
+ },
+ {
+  "job": "231afb123c864c70",
+  "when": "Nov 4",
+  "kind": "check",
+  "file": "proj/lab_e6.py",
+  "speedup": 1.228,
+  "name": "PE6 router P9 sweep + microbenchmarks",
+  "implemented": [
+   "router-only P9 sweep on v3",
+   "microbenchmarks lost in PE3"
+  ],
+  "worked": [
+   "router configs m8 NT1 RTW1 RG2 KSW8 D2 CS8, m16 NT2 RTW1 RG1 KSW8 D2 CS8",
+   "pure read 67.1 MB 15.85 us (4.23 TB/s)",
+   "m=1 GEMV within ~6% of pure streaming"
+  ],
+  "failed": [],
+  "verdict": "Gave v4's router configs and the streaming/fixed-cost numbers."
+ },
+ {
+  "job": "0d1dc429eebf455f",
+  "when": "Nov 4",
+  "kind": "scored",
+  "file": "proj/scored/submission_v4.py",
+  "speedup": 1.247,
+  "name": "v4",
+  "implemented": [
+   "v3 (v2 + library winners)",
+   "P9 CUDA kernel on router m8/m16 (PE6 configs)",
+   "fma GEMV m1, FlashInfer tinygemm unpooler m8, DeepGEMM pooler m128"
+  ],
+  "worked": [
+   "router m8 26.27 -> 5.36 us (4.90x)",
+   "router m16 14.50 -> 5.72 us (2.54x)"
+  ],
+  "failed": [],
+  "verdict": "Scored 1.247x (CI 1.228-1.265), 9/9 tests, prepare 54 s."
+ },
+ {
+  "job": "c0987b67402f45de",
+  "when": "Nov 4",
+  "kind": "check",
+  "file": "proj/lab_e7.py",
+  "speedup": 1.234,
+  "name": "PE7 F12 (P22) 12-bit weights inside P9",
+  "implemented": [
+   "F12 lossless 12-bit weights in P9 (46 instances)",
+   "17 int ops per 8 weights decode into mma A registers",
+   "all 65,536 BF16 patterns round-trip"
+  ],
+  "worked": [
+   "12.004 bits/weight; format exact"
+  ],
+  "failed": [
+   "no gain: pooler m1 27.6 vs 26.4 lab us uncompressed",
+   "compressed stream only ~1.8-2.2 TB/s"
+  ],
+  "verdict": "No F12 winner: P9 is not bandwidth-bound, so compression doesn't help there."
+ },
+ {
+  "job": "26edaae38e814a97",
+  "when": "Nov 4 05:56",
+  "kind": "check",
+  "file": "proj/lab_e8.py",
+  "speedup": 1.254,
+  "name": "PE8 F12V GEMV lab",
+  "implemented": [
+   "F12V: 12-bit lossless CUDA-core GEMV at m=1 (13 int ops per 8 weights)",
+   "40 instances, v4 as fallback"
+  ],
+  "worked": [
+   "pooler m1 17.22 -> 14.67 us (judge)",
+   "qkv m1 11.07 -> 9.63 us (judge)",
+   "decode-1 load 1.444 -> 1.557x",
+   "3.5 TB/s of actual bytes on pooler"
+  ],
+  "failed": [
+   "o m1 and unpooler m1 tie (latency-bound)"
+  ],
+  "verdict": "F12V wins pooler/qkv m1; only +0.5% over board, no scored run."
+ },
+ {
+  "job": "4a1ab72284bc40ac",
+  "when": "Nov 4 06:17",
+  "kind": "check",
+  "file": "proj/lab_e9.py",
+  "speedup": 1.334,
+  "name": "PE9 F12M + F12V lab",
+  "implemented": [
+   "F12M: 12-bit mma.sync (A-fragment order, 7 int ops per 8 weights)",
+   "GEMV-style many small CTAs, 47 instances",
+   "F12V at m=1"
+  ],
+  "worked": [
+   "pooler m8 23.18 -> 18.26 lab us (1.27x)",
+   "qkv m8 1.20x; pooler m16 1.22x; qkv m16 1.14x",
+   "unpooler m16 1.08x; o m8 1.05x",
+   "3.2-3.7 TB/s of actual bytes at m8/16"
+  ],
+  "failed": [
+   "every m=32 shape 0.75-1.03x (x traffic)",
+   "o m16 lost"
+  ],
+  "verdict": "+6.9% over board; became scored v6."
+ },
+ {
+  "job": "4922c5d5cb3545e9",
+  "when": "Nov 4 06:35",
+  "kind": "check",
+  "file": "proj/lab_e10.py",
+  "speedup": 1.26,
+  "name": "PE10 router wide tiles",
+  "implemented": [
+   "v5 (v4 + F12V) + Triton router MODE 1 with BM covering all tokens",
+   "m=32/128/256"
+  ],
+  "worked": [
+   "router m32 11.30 -> 10.35 us",
+   "m128 14.45 -> 13.31 us",
+   "m256 17.49 -> 16.77 us (lab)"
+  ],
+  "failed": [
+   "small gain: Triton hi/lo kernel only 0.5-0.8 TB/s"
+  ],
+  "verdict": "+3-9% per router shape; winners kept for v7."
+ },
+ {
+  "job": "da9512181e1a4d7c",
+  "when": "Nov 4 06:57",
+  "kind": "check",
+  "file": "proj/lab_e11.py",
+  "speedup": 1.261,
+  "name": "PE11 WG wgmma split-K lab",
+  "implemented": [
+   "WG: warp-specialized TMA + wgmma, cluster DSMEM split-K, m=128/256",
+   "15 instances + router wide sweep"
+  ],
+  "worked": [
+   "WG correct on hardware (TMA, mbarrier, wgmma, DSMEM all work)"
+  ],
+  "failed": [
+   "0.49-0.83x of cuBLAS (pooler m128 45.9 vs 26.6 lab us)",
+   "more split-K slower: epilogue dominated (PF31)"
+  ],
+  "verdict": "WG correct but slow; epilogue fix needed."
+ },
+ {
+  "job": "33748bdba9694bcb",
+  "when": "Nov 4 07:15",
+  "kind": "scored",
+  "file": "proj/scored/submission_v6.py",
+  "speedup": 1.318,
+  "name": "v6",
+  "implemented": [
+   "v4 + F12V (12-bit GEMV) at pooler/qkv m1",
+   "F12M (12-bit mma.sync) at o m8, pooler m8/16, qkv m8/16, unpooler m16",
+   "v4 kernels kept as fallbacks"
+  ],
+  "worked": [
+   "decode 1 1.55x, verify 1 1.83x",
+   "decode 16 1.33x",
+   "12-bit weights gave the gain in streaming kernels"
+  ],
+  "failed": [
+   "m=32/128/256 only ~cuBLAS: decode 32 1.16x, verify 16 1.15x, verify 32 1.05x"
+  ],
+  "verdict": "Scored 1.318x (CI 1.298-1.338), ~rank 599 of 1,700; 9/9 tests, prepare 114 s."
+ },
+ {
+  "job": "a946db66109448f6",
+  "when": "Nov 4 08:19",
+  "kind": "check",
+  "file": "proj/lab_e12.py",
+  "speedup": 1.327,
+  "name": "PE12 WG + WGF lab on v7a",
+  "implemented": [
+   "v7a = v6 + PE10 router configs",
+   "WG with fixed epilogue (15 instances)",
+   "WGF 12-bit RS wgmma (20 instances)"
+  ],
+  "worked": [
+   "WG 1.2-2x faster than in PE11 after epilogue fix"
+  ],
+  "failed": [
+   "WG still under cuBLAS (pooler m128 46.0 vs 26.2 lab us)",
+   "WGF ~4x slower than WG (0.7 TB/s, 168 regs, spills)"
+  ],
+  "verdict": "No new winner; score = v7a."
+ },
+ {
+  "job": "792e26ab0d7e416b",
+  "when": "Nov 4 08:59",
+  "kind": "check",
+  "file": "proj/lab_e13.py",
+  "speedup": 1.328,
+  "name": "PE13 WG deep pipelines",
+  "implemented": [
+   "WG with 5-6 stages, clusters up to 4, on v7a",
+   "10 instances"
+  ],
+  "worked": [],
+  "failed": [
+   "5-6 stages within 2% of 4 stages",
+   "KS 2 beat KS 4 (pooler m128 38.6 vs 46.0 us)",
+   "WG 0.60-0.86x of cuBLAS/DeepGEMM"
+  ],
+  "verdict": "Pipeline depth is not the limit; no scored run."
+ },
+ {
+  "job": "4b8e250df4d34e59",
+  "when": "Nov 4 ~10:20",
+  "kind": "check",
+  "file": "proj/lab_e14.py",
+  "speedup": 1.344,
+  "name": "PE14 RG router kernel",
+  "implemented": [
+   "RG: CUDA router kernel, hi/lo mma.sync, x via cp.async + ldmatrix",
+   "cluster 8-16 DSMEM reduction, 24 instances"
+  ],
+  "worked": [
+   "RG correct 24/24",
+   "CS 16 beat CS 8 (m128 16.3 vs 19.5 us)"
+  ],
+  "failed": [
+   "slower than Triton: m32 12.77 vs 10.85, m128 16.27 vs 13.07, m256 23.09 vs 16.86 lab us (0.36-0.66 TB/s)"
+  ],
+  "verdict": "No RG winner; v7a re-measured at 1.344x (noise ~1%)."
+ },
+ {
+  "job": "32f7c073e8314310",
+  "when": "Nov 4 13:58",
+  "kind": "check",
+  "file": "proj/lab_e15.py",
+  "speedup": 1.327,
+  "name": "PE15 SX lab on v7a",
+  "implemented": [
+   "SX: 12-bit mma.sync tensor-core family for m=32/128/256",
+   "x shared via smem, escape flags per chunk, 19 instances"
+  ],
+  "worked": [
+   "all 25 SX candidates correct",
+   "m32 unpooler 1.99 TB/s of 12-bit bytes"
+  ],
+  "failed": [
+   "loses to cuBLAS/DeepGEMM: m32 pooler 40.50 vs 24.67 lab us",
+   "m128 pooler 80.26 vs 26.26 us",
+   "4-CTA cluster ~1.6x slower than 2-CTA",
+   "m128/256 at 254-255 registers, ~107 TF"
+  ],
+  "verdict": "No SX winner; score = v7a (1.327x)."
+ },
+ {
+  "job": "beb23c0138534674",
+  "when": "Nov 4 15:42",
+  "kind": "check",
+  "file": "proj/lab_e16.py",
+  "speedup": 1.339,
+  "name": "PE16 SXW wgmma lab",
+  "implemented": [
+   "SXW: SX with wgmma RS, 12-bit A via per-warp smem rings",
+   "9 instances at m=128/256"
+  ],
+  "worked": [
+   "SXW correct 9/9"
+  ],
+  "failed": [
+   "0.31-0.65x of references (pooler m128 60.43 vs 26.48 lab us; m256 pooler 106.0 vs 32.62)",
+   "wgmma vs mma.sync changed nothing measurable"
+  ],
+  "verdict": "No winner; m>=128 stays on cuBLAS/DeepGEMM."
+ },
+ {
+  "job": "75e671cd764d476f",
+  "when": "Nov 4 ~16:00",
+  "kind": "check",
+  "file": "proj/lab_e17.py",
+  "speedup": 1.318,
+  "name": "PE17 F12M split-K lab",
+  "implemented": [
+   "F12M split-K across 2-8 CTA clusters (CS)",
+   "22 instances on qkv/o/unpooler/pooler at m1/8/16"
+  ],
+  "worked": [
+   "split-K correct 37/37"
+  ],
+  "failed": [
+   "never faster: qkv m16 16.72 vs 16.64 us",
+   "unpooler m16 28.2 vs 21.0 us",
+   "pooler m8 22.1 vs 18.6 us",
+   "CS 4/8 no better than CS 2"
+  ],
+  "verdict": "Split-K gives no speedup; v7a measured 1.318x."
+ },
+ {
+  "job": "ce3ec579c4c743ff",
+  "when": "Nov 4 16:07",
+  "kind": "check",
+  "file": "proj/lab_e18.py",
+  "speedup": 1.329,
+  "name": "PE18 router hi/lo Triton lab",
+  "implemented": [
+   "pre-split BF16 hi/lo fed into tl.dot (hl_gemm, hl_swap)",
+   "44 configs per router shape, m=8..256"
+  ],
+  "worked": [
+   "router m32 +4.5% (10.56 vs 11.04 lab us)",
+   "m128 +11% (12.26 vs 13.63)",
+   "m256 +12% (15.10 vs 16.93)",
+   "judge m128 8.00, m256 10.94 us"
+  ],
+  "failed": [
+   "m8/m16 hl ~ P9 (kept P9)",
+   "still only 0.56-0.82 TB/s"
+  ],
+  "verdict": "Wins router m32/128/256; basis of v8."
+ },
+ {
+  "job": "3157060493544dcf",
+  "when": "Nov 4 16:21",
+  "kind": "check",
+  "file": "proj/lab_e19.py",
+  "speedup": 1.336,
+  "name": "PE19 x-ring + router refinement",
+  "implemented": [
+   "v8 (v7b + HL section) + 15 x-ring F12M instances",
+   "router hi/lo refinement around PE18 bests"
+  ],
+  "worked": [
+   "unpooler m16 F12M D8 XD1 (58 regs): 19.84 vs 20.82 lab us (+4.7%); judge 15.57 vs 16.55",
+   "router m256 hl_gemm BM128: judge 10.00 vs 10.94 us (+3.3%)",
+   "+1.4% over board 1.318"
+  ],
+  "failed": [
+   "x ring elsewhere slower: qkv m16 17.44 vs 16.50 us",
+   "deeper rings with more registers slower (qkv m8 D8 163 r 25.7 us)"
+  ],
+  "verdict": "Two winners; became v9 (1.336x)."
+ },
+ {
+  "job": "796600c789d84aa9",
+  "when": "Nov 4 16:31",
+  "kind": "check",
+  "file": "proj/lab_e20.py",
+  "speedup": 1.338,
+  "name": "PE20 router swap at m128/256",
+  "implemented": [
+   "v9 + router hi/lo swap kernel at m128/256 (tokens as wgmma N)",
+   "re-timed PE19 near-winners"
+  ],
+  "worked": [
+   "router m16 hl_gemm BM16 BN32 BK128 s32 w2 st3: 9.63 vs P9 9.95 lab us (+3.3%)",
+   "+1.5% over board 1.318"
+  ],
+  "failed": [
+   "swap slower at m256 (15.76 vs 14.16 us) and m128 (12.43 vs 12.13 us)"
+  ],
+  "verdict": "One winner; became v10."
+ },
+ {
+  "job": "7779f243a8f14f56",
+  "when": "Nov 4 16:40",
+  "kind": "scored",
+  "file": "proj/scored/submission_v10.py",
+  "speedup": 1.351,
+  "name": "v10",
+  "implemented": [
+   "v7a choices rebuilt with CS/XD-capable F12M",
+   "unpooler m16 F12M x ring (D8, XD1)",
+   "router on pre-split BF16 hi/lo Triton kernels at m16/32/128/256"
+  ],
+  "worked": [
+   "1.351x (CI 1.331-1.371), rank 622 -> 553",
+   "router m32/128/256 judge 5.86/7.64-8.00/10.00 us (was 6.76/8.84/12.60)"
+  ],
+  "failed": [],
+  "verdict": "New board entry (was v6 1.318x)."
+ },
+ {
+  "job": "ee5b3e6584ef4da6",
+  "when": "Nov 5 01:03",
+  "kind": "scored",
+  "file": "proj/scored/submission_v11b.py",
+  "speedup": 1.3511,
+  "name": "v11b",
+  "implemented": [
+   "v10 byte for byte + unpooler m32 and pooler m32 on DG12-RS (12-bit lossless weights decoded into register-A wgmma, split-K over a 2- / 4-CTA cluster)",
+   "fully specialized DG12-RS instances from the pinned dgrs_v10.py (kernel by muse_prefill_layer); v10's kernel kept as the fallback"
+  ],
+  "worked": [
+   "checks of the same timed path: PE40 1.363x, then 1.3628 / 1.3639x",
+   "judge per shape: unpooler m32 1.170x, pooler m32 1.103x"
+  ],
+  "failed": [
+   "scored 1.3511x (CI 1.331-1.371), equal to v10's: the rest of the run landed low in its spread",
+   "re-run rejected by okc as a duplicate of the same file (no scored run used)"
+  ],
+  "verdict": "Board unchanged at 1.3511x (rank 575 of 1,728); the board keeps the best run."
+ },
+ {
+  "job": "e18ba7be45d943d7",
+  "when": "Nov 5 03:30",
+  "kind": "scored",
+  "file": "proj/scored/submission_v12.py",
+  "speedup": 1.3595,
+  "name": "v12",
+  "implemented": [
+   "v11b + one line in F12M's CUDA source: part[KSW][RB][MT] -> [MT + 3] (bank conflicts 4-16-way -> <= 2-way; bit-identical outputs)"
+  ],
+  "worked": [
+   "lab PE45: o m8 +4.2%, unpooler m16 +3.8%, qkv m16 +2.5%, pooler m16 +1.5%",
+   "scored 1.3595x, new board entry, rank 564 of 1,735"
+  ],
+  "failed": [],
+  "verdict": "New board entry (was 1.3511x)."
+ },
+ {
+  "job": "3e256749d6f443ea",
+  "when": "Nov 5 04:05",
+  "kind": "scored",
+  "file": "proj/scored/submission_v14.py",
+  "speedup": 1.3581,
+  "name": "v14",
+  "implemented": [
+   "v12 + a helper warp that precomputes F12M's escape corrections on o m1 / o m8 / qkv m16 (PE46)",
+   "the unpooler's 1024-row slice at m8 on padded F12M NT1 KSW8 D4 (PE49)"
+  ],
+  "worked": [
+   "checks of the same kernel_fn 1.3693-1.3803x",
+   "judge o m1 5.13 us (was 5.65), qkv m16 11.62 (12.31)"
+  ],
+  "failed": [
+   "scored 1.3581x, below v12's 1.3595x (scored runs landed 0.5-1.2% below checks today)"
+  ],
+  "verdict": "Board unchanged (v12 stays)."
+ },
+ {
+  "job": "f7271a9add2740fd",
+  "when": "Nov 5 04:30",
+  "kind": "scored",
+  "file": "proj/scored/submission_v16.py",
+  "speedup": 1.3771,
+  "name": "v16",
+  "implemented": [
+   "v14 + pooler m32 on padded F12M NT4 RTW1 KSW8 D1 (PE54, +5.1% vs DG12-RS)",
+   "two-phase P9 cluster reduction on router m8 / m16 (local KSW sums first, then CS DSMEM reads per output; PE57)"
+  ],
+  "worked": [
+   "PE57 check of this kernel_fn 1.3893x",
+   "scored 1.3771x, new board entry, rank 545 of 1,737"
+  ],
+  "failed": [],
+  "verdict": "New board entry (was v12 1.3595x)."
+ }
+]

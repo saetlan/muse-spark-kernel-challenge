@@ -1,0 +1,488 @@
+[
+ {
+  "job": "0b60be8cf5854e6d",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "lab_re1.py",
+  "speedup": 0.978,
+  "name": "RE1",
+  "implemented": [
+   "v1 = SGLang + Marlin tile 32 at T=753",
+   "Lab: routing stats at T=753/3012/16384",
+   "Lab: Marlin tile 8-64 sweep",
+   "Lab: BF16 torch._grouped_mm ceiling"
+  ],
+  "worked": [
+   "Gave per-shape SGLang timings and per-kernel profile (Marlin 44-67% of GPU time)",
+   "Grouped_mm BF16 reached 596 TFLOP/s at 16K vs Marlin ~230"
+  ],
+  "failed": [
+   "Tile 32 at T=753 cost 8% (turn 1 0.92x/0.94x)",
+   "Overall 0.978x"
+  ],
+  "verdict": "Recon check: tile fix lost, but it found Marlin dominates and BF16 grouped GEMM is the lever at 16K."
+ },
+ {
+  "job": "c389eb8da3a64af2",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "",
+  "speedup": 1.144,
+  "name": "RE2 (v2)",
+  "implemented": [
+   "Sort local routes by expert on GPU, Triton gather",
+   "Triton NVFP4 to BF16 decode of touched experts into 3 GB scratch",
+   "Two torch._grouped_mm + Triton SiLU-and-mul and combine",
+   "Grouped path from 4096 tokens, else Marlin"
+  ],
+  "worked": [
+   "First turn 1.52x (ctx 0), 1.55x (sliding 32K), 1.36x (full 32K), 1.29x (full 64K)",
+   "Grouped vs Marlin at 16K: 11.5 ms to 6.2-6.7 ms"
+  ],
+  "failed": [
+   "Turn 1 and turn 4 stayed 1.00x (Marlin path)",
+   "Dequant ran at only 2.4 TB/s (ALU-bound)"
+  ],
+  "verdict": "Passed 5/5 at 1.144x; grouped BF16 path wins only at 16K tokens."
+ },
+ {
+  "job": "8eb7a168b38743a1",
+  "when": "Nov 3",
+  "kind": "scored",
+  "file": "prefill_layer/scored/v2.8eb7a168b38743a1.py",
+  "speedup": 1.142,
+  "name": "v2",
+  "implemented": [
+   "SGLang + grouped experts from 4096 tokens",
+   "NVFP4 to BF16 dequant scratch + torch._grouped_mm",
+   "Triton gather, SiLU-and-mul, post-norm combine",
+   "Marlin fallback below threshold"
+  ],
+  "worked": [
+   "First-turn shapes 1.29-1.55x",
+   "CI 1.125-1.159"
+  ],
+  "failed": [
+   "Turn 1 and turn 4 at 1.00x"
+  ],
+  "verdict": "Scored 1.142x, would rank ~705th of 855; leader 2.252x."
+ },
+ {
+  "job": "db66404ec36a4803",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "",
+  "speedup": 1.134,
+  "name": "RE3",
+  "implemented": [
+   "v2 grouped path from 8192 tokens",
+   "R3 fused NVFP4 grouped GEMMs in Triton (lab-dispatched)",
+   "M2 asm decode copied, device tile table",
+   "Lab sweep of 21 Triton configs"
+  ],
+  "worked": [
+   "R3 correct (stage err 1.7e-3, e2e 5.6e-3)",
+   "Lab run only 15 s"
+  ],
+  "failed": [
+   "R3 0.76x Marlin at 753, 0.84x at 3012, 0.55x grouped at 16K",
+   "Best Triton only ~195-250 TFLOP/s; no class switched on"
+  ],
+  "verdict": "Triton fused kernel is correct but Marlin-speed; CUDA is needed."
+ },
+ {
+  "job": "cc7c47d123a64748",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "",
+  "speedup": 1.219,
+  "name": "RE4",
+  "implemented": [
+   "R14 Hopper W4A16 CUDA kernel (TMA ring, wgmma RS, swap-AB)",
+   "Lossless fragment-order NVFP4 repack",
+   "Warp-specialized producer + 2 consumer WGs",
+   "Hybrid dispatch: R14 on turn 4 only"
+  ],
+  "worked": [
+   "Compiled first try, correct (stage 1.65e-3, e2e 5.6e-3)",
+   "Turn 4 3,365 to 2,618 us (1.285x sliding), 4,892 to 4,187 us (1.168x full)",
+   "GEMMs ~400 TFLOP/s at 16K"
+  ],
+  "failed": [
+   "753: R14 0.87x vs Marlin (1,007-1,057 vs 904-921 us)",
+   "16K about equal to grouped"
+  ],
+  "verdict": "R14 correct on first try and wins turn 4; slow at 753 (latency-bound, tiny tiles)."
+ },
+ {
+  "job": "fb950ba2fd1f47d5",
+  "when": "Nov 3",
+  "kind": "scored",
+  "file": "prefill_layer/scored/v4.fb950ba2fd1f47d5.py",
+  "speedup": 1.214,
+  "name": "v4",
+  "implemented": [
+   "v2 grouped path for first turn (>= 8192 tokens)",
+   "R14 CUDA W4A16 grouped GEMM on turn 4",
+   "Marlin on turn 1",
+   "prepare GPU self-check (err 5.6e-3)"
+  ],
+  "worked": [
+   "Turn 4 1.262x / 1.160x",
+   "CI 1.196-1.232"
+  ],
+  "failed": [
+   "Turn 1 still 1.00x"
+  ],
+  "verdict": "Scored 1.214x; would rank ~660 of 851."
+ },
+ {
+  "job": "f76c686998de441e",
+  "when": "Nov 4",
+  "kind": "check",
+  "file": "",
+  "speedup": 1.195,
+  "name": "RE5",
+  "implemented": [
+   "R14 v2: tiling mode 1 (128-row tiles + one ceil16 tail)",
+   "Ring sized per CTA (R35)",
+   "Depth-2 wgmma groups (R36)",
+   "Runtime ring size (kc % S, kc / S)"
+  ],
+  "worked": [
+   "Tiling mode 1: 753 GEMM1 818 to 557 us, GEMM2 408 to 284 us",
+   "Expert block 753 1,201 to 824 us"
+  ],
+  "failed": [
+   "Ring depth and depth 2: no effect",
+   "Kernel 12-22% slower per row than v4; turn 4 1.191x/1.120x vs v4 1.262x/1.160x",
+   "Runtime integer division suspected cause"
+  ],
+  "verdict": "Tiling helps but runtime ring division regressed the kernel; fixed in RE6."
+ },
+ {
+  "job": "704c773ff98d409e",
+  "when": "Nov 4",
+  "kind": "check",
+  "file": "",
+  "speedup": 1.34,
+  "name": "RE6",
+  "implemented": [
+   "v5 with division-free incremental ring counters",
+   "R14 with (2,8,1) variant on turn 1 and turn 4",
+   "Tiling mode 1",
+   "First turn stays grouped"
+  ],
+  "worked": [
+   "Turn 1 1.264x/1.191x, turn 4 1.380x/1.224x",
+   "Expert block 753 mode 1: 615-704 us vs Marlin 829-893 us",
+   "Judge turn 4 GEMM1 931 us vs v4 1,038-1,089 us"
+  ],
+  "failed": [
+   "16K: R14 5,830-6,872 vs grouped 6,214-6,599 us (<3%)"
+  ],
+  "verdict": "Removing runtime division recovered the loss; 1.340x became the v5 candidate."
+ },
+ {
+  "job": "6c8bf4d509bc402c",
+  "when": "Nov 4",
+  "kind": "check",
+  "file": "lab_re7.py",
+  "speedup": 1.342,
+  "name": "RE7",
+  "implemented": [
+   "R38: clusters of 1/2/4 CTAs with TMA multicast of B tile",
+   "No-load and no-MMA diagnostic kernels",
+   "ptxas -v probe build",
+   "kernel_fn = v6 variant (2,8,1,1) on t1/t4"
+  ],
+  "worked": [
+   "All variants correct (5-6e-3)",
+   "Diagnostics: no-load ~ full time, so not memory-bound",
+   "No wgmma serialization advisory, 144 regs, 0 spill"
+  ],
+  "failed": [
+   "Multicast 2-3x slower: 753 cl1 603 / cl2 1,291 / cl4 2,002 us (Marlin 793)"
+  ],
+  "verdict": "Multicast dropped; R14 is consumer-bound, not memory-bound."
+ },
+ {
+  "job": "d0f3c4bdfd1f4b8a",
+  "when": "Nov 4 ~06:20",
+  "kind": "check",
+  "file": "lab_re8.py",
+  "speedup": 1.25,
+  "name": "RE8",
+  "implemented": [
+   "R40: clock64 per-phase in-kernel profile of R14",
+   "Variant (2,8,1,1) only"
+  ],
+  "worked": [
+   "Per chunk at 753 g1: issue 124, full-wait 273, lds+decode 305, loop 790 cycles",
+   "Producer waits on empty slots half its time"
+  ],
+  "failed": [],
+  "verdict": "Profile shows consumers wait ~300 cycles per chunk on data despite copies issued ahead."
+ },
+ {
+  "job": "5b11872b00dc4050",
+  "when": "Nov 4 ~06:45",
+  "kind": "check",
+  "file": "lab_re9.py",
+  "speedup": 1.295,
+  "name": "RE9",
+  "implemented": [
+   "Timed no-load (DIAG 4) and no-MMA (DIAG 5) kernels",
+   "Dispatch also picked R14 for first-turn class"
+  ],
+  "worked": [
+   "Full-wait ~255-280 cycles even in no-load kernel",
+   "Decode ~300 cycles fits ~95 instructions per warp per chunk"
+  ],
+  "failed": [
+   "No-MMA decode was dead code (16 cycles)"
+  ],
+  "verdict": "Full-barrier wait is not data latency; suspected polling, tested in RE10."
+ },
+ {
+  "job": "db9f30fb2ae34e51",
+  "when": "Nov 4 ~07:10",
+  "kind": "check",
+  "file": "lab_re10.py",
+  "speedup": 1.27,
+  "name": "RE10",
+  "implemented": [
+   "Lane-0 full-barrier waits (variant 6)",
+   "RE6 kernel as comparison"
+  ],
+  "worked": [
+   "Correct (6e-3)",
+   "Not polling contention (ruled out)"
+  ],
+  "failed": [
+   "Slower: 753 e2e 617 vs 587 us; g1 full-wait 388 vs 276 cycles"
+  ],
+  "verdict": "Lane-0 polling is worse; shared-memory waits behind wgmma suspected."
+ },
+ {
+  "job": "f555744e72eb40a0",
+  "when": "Nov 4 ~07:35",
+  "kind": "check",
+  "file": "lab_re11.py",
+  "speedup": 1.258,
+  "name": "RE11",
+  "implemented": [
+   "Early shared-memory reads (variant 8)",
+   "Register-only decode while wgmma runs"
+  ],
+  "worked": [
+   "Correct",
+   "Decode grows with in-flight MMA: 318 cycles at N 47, 497 at N 121"
+  ],
+  "failed": [
+   "No gain: 753 614 vs 607 us, 16K 6,314 vs 5,875 us"
+  ],
+  "verdict": "Decode and wgmma issue serialize per scheduler; no speedup."
+ },
+ {
+  "job": "c36d3344f1ec4503",
+  "when": "Nov 4 ~07:55",
+  "kind": "check",
+  "file": "lab_re12.py",
+  "speedup": 1.282,
+  "name": "RE12",
+  "implemented": [
+   "Ping-pong wgmma issue via named barriers (variant 10)"
+  ],
+  "worked": [
+   "Correct"
+  ],
+  "failed": [
+   "No gain: 753 721 vs 700 us; g1 loop 797 vs 786 cycles; 16K 896 vs 878"
+  ],
+  "verdict": "Ping-pong alone does not shorten per-chunk time."
+ },
+ {
+  "job": "fdb88793269c4d76",
+  "when": "Nov 4 ~08:30",
+  "kind": "check",
+  "file": "lab_re13.py",
+  "speedup": 1.263,
+  "name": "RE13",
+  "implemented": [
+   "Ping-pong + wait_group 0 full drain before decode (variant 12)"
+  ],
+  "worked": [
+   "Correct",
+   "Shows costs are intrinsic, not interference"
+  ],
+  "failed": [
+   "Slower: 753 642 vs 595 us, 16K 9,140 vs 8,305 us"
+  ],
+  "verdict": "Full drain is slower; per-chunk costs are intrinsic."
+ },
+ {
+  "job": "2370b9735ad64021",
+  "when": "Nov 4 09:09",
+  "kind": "check",
+  "file": "lab_re14.py",
+  "speedup": 1.281,
+  "name": "RE14",
+  "implemented": [
+   "R47 cheaper decode via lossless bit layout (11 vs 15 int ops per k16)",
+   "Exact decode check"
+  ],
+  "worked": [
+   "Correct (6e-3)",
+   "Decode 302 vs 308 cycles (753 g1)"
+  ],
+  "failed": [
+   "Flat: 753 764 vs 767 us, 16K 5,837 vs 5,880 us; 0.4-2.4% only"
+  ],
+  "verdict": "Decode is not issue-bound; R47 gives no measurable gain."
+ },
+ {
+  "job": "c8adfdf28f1f4d2b",
+  "when": "Nov 4 ~09:50",
+  "kind": "scored",
+  "file": "prefill_layer/scored/v5.c8adfdf28f1f4d2b.py",
+  "speedup": 1.344,
+  "name": "v5",
+  "implemented": [
+   "R14 CUDA W4A16 grouped GEMM on turn 1 and turn 4 (tiling mode 1, (2,8,1))",
+   "Division-free ring counters",
+   "First turn on v2 grouped path",
+   "prepare GPU self-check (err 5.6e-3)"
+  ],
+  "worked": [
+   "Turn 1 1.262x/1.178x, turn 4 1.386x/1.226x",
+   "First turn 1.501x/1.544x/1.346x/1.268x",
+   "CI 1.324-1.364"
+  ],
+  "failed": [],
+  "verdict": "Scored 1.344x; board still listed v4 1.214x at rank 677; leader 2.147x."
+ },
+ {
+  "job": "7a0d75a48af84b51",
+  "when": "Nov 4",
+  "kind": "check",
+  "file": "lab_re15.py",
+  "speedup": 1.281,
+  "name": "RE15",
+  "implemented": [
+   "Pair stages: ring slots hold 2 chunks (R48), one barrier per 2 chunks",
+   "Raw weight reads one step ahead (variant 16)"
+  ],
+  "worked": [
+   "Correct (6e-3)",
+   "Full-wait 230 vs 272 cycles"
+  ],
+  "failed": [
+   "Flat: 753 603 vs 606 us; 3012 +3% and 16K +4% slower",
+   "Register-only decode 402 vs 308 cycles"
+  ],
+  "verdict": "Pairing moves the time elsewhere; no gain."
+ },
+ {
+  "job": "dc6622c40a104949",
+  "when": "Nov 4",
+  "kind": "check",
+  "file": "lab_re16.py",
+  "speedup": 1.285,
+  "name": "RE16",
+  "implemented": [
+   "No-decode diagnostic (DIAG 18/19) next to base kernel",
+   "Variants (2,8,1,1) and R47 (2,8,1,1,14)"
+  ],
+  "worked": [
+   "Decode costs 18-27% of each GEMM: 753 g1 363 vs 499 us, 16K g1 2,930 vs 3,734 us",
+   "Per chunk budget measured (loop 539 vs 775 cycles)"
+  ],
+  "failed": [
+   "Full-wait ~271-315 cycles remains even with free decode"
+  ],
+  "verdict": "Diagnostic: decode and barrier waits must leave the MMA warps."
+ },
+ {
+  "job": "d341d08d5bdd4f52",
+  "when": "Nov 4",
+  "kind": "check",
+  "file": "lab_re17.py",
+  "speedup": null,
+  "name": "RE17",
+  "implemented": [
+   "R53 dequant warp specialization (dq_kernel, 640 threads)",
+   "Producer WG + 2 decoder WGs + 2 MMA WGs",
+   "setmaxnreg split 40/80/152"
+  ],
+  "worked": [
+   "Base and R47 units passed at T=64 (err 1.7e-3)"
+  ],
+  "failed": [
+   "Timeout: setmaxnreg.inc hung at R53's first launch (needs 63,488 regs vs 61,440 allocated)"
+  ],
+  "verdict": "Timed out: register split exceeded the launch allocation (F57); fixed in RE17b."
+ },
+ {
+  "job": "e7d61cc5987b4031",
+  "when": "Nov 4",
+  "kind": "check",
+  "file": "",
+  "speedup": 1.316,
+  "name": "RE17b",
+  "implemented": [
+   "R53 relaunched with setmaxnreg split 40/72/144",
+   "Immediate mbarrier timeout flags"
+  ],
+  "worked": [
+   "R53 correct (6e-3, 0 flags), 96 regs, 0 spill",
+   "Warp-specialized A-tile chain works"
+  ],
+  "failed": [
+   "Not faster: 753 718 vs 680 us, 3,012 1,330 vs 1,222 us, 16K 5,332 vs 4,816 us",
+   "Lab-dispatched R47 on 16K made first turn slower (1.42x/1.38x vs v5 1.54x/1.50x)"
+  ],
+  "verdict": "R53 correct but not faster; lab routing at 16K does not predict the judge (RF26)."
+ },
+ {
+  "job": "96c9866f0ce74efc",
+  "when": "Nov 4 ~17:05",
+  "kind": "check",
+  "file": "lab_re18.py",
+  "speedup": 1.313,
+  "name": "RE18",
+  "implemented": [
+   "R54 wide_kernel: 4 consumer warpgroups, 544 threads, 64-row tiles (mode 2)",
+   "R47 on 64-row tiles as control",
+   "Dispatch R47 on t1/t4, first turn grouped"
+  ],
+  "worked": [
+   "Correct (6e-3, 0 flags)",
+   "Same 64-row tiles: R54 GEMMs 8-13% faster than R14 (753 g1 473 vs 543 us)"
+  ],
+  "failed": [
+   "R54 net loss: 753 714/737 vs R47 128-row 610/713 us",
+   "64-row tiles cost 22-48% vs 128-row",
+   "ptxas capped at 96 regs with spills; per-WG loop 1,956 vs 771 cycles"
+  ],
+  "verdict": "More consumer warps do not shorten the chunk; R54 loses net."
+ },
+ {
+  "job": "cb48ffc22c9341ec",
+  "when": "Nov 5 03:17",
+  "kind": "scored",
+  "file": "prefill_layer/scored/v7g.cb48ffc22c9341ec.py",
+  "speedup": 1.3783,
+  "name": "v7g",
+  "implemented": [
+   "scored v5 + grouped-path glue (glue2): counts by a Triton histogram, inv by one kernel, gather in route order; bit-identical outputs"
+  ],
+  "worked": [
+   "1.3783x (CI 1.358-1.399), new best (v5 1.3442x, +2.5%)"
+  ],
+  "failed": [
+   "part of it is a favorable draw (t1 code unchanged)"
+  ],
+  "verdict": "New board entry (was v5 1.3442x)."
+ }
+]

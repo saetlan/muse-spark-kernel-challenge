@@ -1,0 +1,600 @@
+[
+ {
+  "job": "f07073be9fed4446",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "moe/lab_e1.py",
+  "speedup": 1.065,
+  "name": "E1",
+  "implemented": [
+   "v0: SGLang Marlin with rule-based tile height",
+   "Recon lab: env, tile-height sweep, HBM bandwidth, graph cost",
+   "Triton decode-trick test (failed to compile)"
+  ],
+  "worked": [
+   "Per shape: bs128 1.101x, bs256 1.346x",
+   "All 5 tests pass (error ~5.5e-3 vs 1.5e-2 allowed)",
+   "Findings F16-F23"
+  ],
+  "failed": [
+   "bs1/bs8/bs16 ~1.00x and bs32 0.987x vs SGLang",
+   "decode lab section failed to compile (F23)"
+  ],
+  "verdict": "Baseline recon: v0 is only 1.065x, small batches tie SGLang."
+ },
+ {
+  "job": "115f7861b8364504",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "moe/lab_e1b.py",
+  "speedup": 1.267,
+  "name": "E1b",
+  "implemented": [
+   "v1: measured Marlin tile heights (8 <32 tokens, 16 <192, else 32)",
+   "SGLang fused post-norm kernel at every token count",
+   "Lab: post-norm compare, decode trick, header locations, load_inline compile"
+  ],
+  "worked": [
+   "v1 1.267x (CI 1.248-1.286), all 5 tests pass",
+   "Every lab section worked; findings F31, F36-F40"
+  ],
+  "failed": [],
+  "verdict": "v1 beat v0 clearly, so clean v1 became the first scored entry."
+ },
+ {
+  "job": "87c8a84e5a174de5",
+  "when": "Nov 3",
+  "kind": "scored",
+  "file": "moe/submission.py",
+  "speedup": 1.27,
+  "name": "v1",
+  "implemented": [
+   "Marlin with measured tile heights (8/16/32)",
+   "SGLang fused post-norm kernel at every token count"
+  ],
+  "worked": [
+   "1.270x (CI 1.251-1.289), rank 1,211 of 1,367 at 18:33 UTC"
+  ],
+  "failed": [],
+  "verdict": "First scored entry; same kernels as SGLang with better call parameters."
+ },
+ {
+  "job": "2d148b4700334282",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "moe/lab_e2.py",
+  "speedup": 1.266,
+  "name": "E2",
+  "implemented": [
+   "M2: Triton + inline-PTX NVFP4 decode, no sort/align kernel",
+   "38 variants (swap, BN, BK, split-K, stages, warps)",
+   "Hybrid kernel_fn sends <=32 tokens to M2 only where correct and >=3% faster"
+  ],
+  "worked": [
+   "M2 correct everywhere (stage errors 1.7e-3 / 2.9e-3, e2e 3.4e-3)",
+   "All 38 variants compiled; lab took 20 s"
+  ],
+  "failed": [
+   "M2 0.66-0.91x of v1 at every batch size (F44-F46); kernel_fn stayed on v1"
+  ],
+  "verdict": "Triton route is correct but slower than v1; abandoned for CUDA."
+ },
+ {
+  "job": "d0ce41e8697245ce",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "moe/lab_e3.py",
+  "speedup": 1.309,
+  "name": "E3",
+  "implemented": [
+   "M11: CUDA swap-AB mma.sync m16n8k16 with fragment-ordered NVFP4 weights",
+   "Lossless shuffle decoded straight into A registers",
+   "SwiGLU in GEMM1 epilogue, in-CTA pair scan, register prefetch ring",
+   "M11 at bs 1-16, v1 at 32+"
+  ],
+  "worked": [
+   "1.309x vs v1 1.270x; bs1 49.6 vs 52.5 us, bs8 104.0 vs 111.9, bs16 152.9 vs 159.7",
+   "GEMM1 at bs8 streams ~3.5 TB/s",
+   "Compiled first try (nvcc 21 s), error 3.4-3.5e-3"
+  ],
+  "failed": [
+   "bs1 GEMM1 only ~1.7 TB/s, GEMM2 ~1.3 TB/s (too few warps in flight)",
+   "nt4 d2 at bs32 was 0.75x v1"
+  ],
+  "verdict": "M11 works and beats v1 at bs 1-16; small batches limited by warps/bytes in flight (MF1-MF2)."
+ },
+ {
+  "job": "513d25205a2549c5",
+  "when": "Nov 3 21:15",
+  "kind": "scored",
+  "file": "moe/scored/submission_m11_e3configs.py",
+  "speedup": 1.303,
+  "name": "M11 hybrid",
+  "implemented": [
+   "M11 hybrid with E3's lab-chosen configs (bs1-4, 5-8, 9-16)",
+   "v1 for 17+ tokens"
+  ],
+  "worked": [
+   "1.303x (CI 1.284-1.323), up from v1 1.270x"
+  ],
+  "failed": [
+   "Board still showed 1.270x at 21:17 UTC"
+  ],
+  "verdict": "First M11 scored run; modest gain over v1."
+ },
+ {
+  "job": "62a4b7d6e8944fe5",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "moe/lab_e3b.py",
+  "speedup": 1.382,
+  "name": "E3b",
+  "implemented": [
+   "M11 with K split across 2-4 warps per task (partial sums in shared memory)",
+   "tt 2 for GEMM2 tasks",
+   "Loop over 8*nt-pair chunks so any nt serves up to 32 tokens",
+   "22 instances"
+  ],
+  "worked": [
+   "1.382x (CI 1.361-1.402); bs1 39.4 us (1.99x)",
+   "bs1 GEMM1 16.4 us (E3 28.7), GEMM2 12.6 (18.4)",
+   "bs32 M11 189.8 us (1.10x) vs Marlin ~200 us"
+  ],
+  "failed": [
+   "bs8 ks4 GEMM1 took 68.0 us on the judge vs 45.4 us for E3's ks1 (lab picked on one routing: luck)"
+  ],
+  "verdict": "K split fixes the small-batch warp shortage; lab selection on a single routing is unreliable."
+ },
+ {
+  "job": "8ce4aba7fd53499c",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "moe/lab_e3c.py",
+  "speedup": 1.446,
+  "name": "E3c",
+  "implemented": [
+   "M11 configs picked on 3-routing means per batch class",
+   "MAXP/M11_MAX_TOKENS raised to 320; 25 instances incl. 128/256 tokens",
+   "Classes 1-4, 5-8, 9-16, 17-32 on M11; 33+ on v1"
+  ],
+  "worked": [
+   "1.446x (CI 1.424-1.468); bs1 38.8 us (2.04x), bs8 92.0 (1.55x), bs16 128.4 (1.45x)",
+   "bs8 improved from 107.4 us (E3b) to 92.0 us"
+  ],
+  "failed": [
+   "At 128/256 tokens M11 only ties Marlin (354.5 vs 354.1 us; 445.8 vs 441.3 us), kept on v1"
+  ],
+  "verdict": "Averaging 3 routings fixes selection; M11 now serves 1-32 tokens."
+ },
+ {
+  "job": "ca7708071dc34230",
+  "when": "Nov 3 23:34",
+  "kind": "scored",
+  "file": "moe/scored/submission_m11_e3cconfigs.py",
+  "speedup": 1.443,
+  "name": "M11 E3c",
+  "implemented": [
+   "M11 with E3c configs (bs1-4, 5-16, 17-32 classes)",
+   "v1 above 32 tokens"
+  ],
+  "worked": [
+   "1.443x (CI 1.422-1.465), rank 975 of 1,376"
+  ],
+  "failed": [],
+  "verdict": "Big jump from 1.303x; the main early scored result."
+ },
+ {
+  "job": "b369f7d5704c46e0",
+  "when": "Nov 3",
+  "kind": "check",
+  "file": "moe/lab_e4.py",
+  "speedup": 1.448,
+  "name": "E4",
+  "implemented": [
+   "M12: per-warp TMA cp.async.bulk weight ring with mbarrier expect-tx",
+   "18 M12 instances next to 25 M11 instances",
+   "Watchdog __trap on bad byte count"
+  ],
+  "worked": [
+   "No trap, all 5 tests passed; 128-229 regs, 38-96 KB smem",
+   "kernel_fn stayed on M11 (1.448x, CI 1.426-1.486)"
+  ],
+  "failed": [
+   "M12 lost to M11 at every batch size (bs1 GEMM1 28 vs 23 us; bs256 345 vs 303 us)",
+   "1 CTA/SM was worst (bs1 GEMM1 36-45 us); activations prefetched only one step ahead"
+  ],
+  "verdict": "TMA weight ring lost everywhere; lesson: prefetch activations as deep as weights."
+ },
+ {
+  "job": "1b2fc2b93ef94955",
+  "when": "Nov 4",
+  "kind": "check",
+  "file": "moe/lab_e5.py",
+  "speedup": 1.44,
+  "name": "E5",
+  "implemented": [
+   "M13: stream-K M11 with continuous pipeline, lossless re-layout (9 instr/word), FP32 scratch + atomics",
+   "PDL on GEMM2 and a CUDA post-norm",
+   "Stage search and e2e per class 1-64 tokens"
+  ],
+  "worked": [
+   "M13 3-11% faster than M11/v1 in some classes; PDL worth 3-4 us (bs1 46.3 -> 43.2 us)",
+   "More CTAs per SM always helped (bs8 GEMM1 c1 101 -> c4 58.5 us)"
+  ],
+  "failed": [
+   "Every PDL config failed the FP32 check (hoisted __ldg loads above griddepcontrol.wait)",
+   "GEMM1 still ~2.0-3.0 TB/s wall, same as M11; no class switched"
+  ],
+  "verdict": "M13 reaches M11's bandwidth wall; PDL bug found and fixed afterward."
+ },
+ {
+  "job": "9297eecc79ea4cf5",
+  "when": "Nov 4",
+  "kind": "check",
+  "file": "moe/lab_e6.py",
+  "speedup": 1.439,
+  "name": "E6",
+  "implemented": [
+   "M14: large-batch (32-320 tokens) kernel on M13 machinery, 4-warp CTA, swizzled shared-memory activations",
+   "8 instances; stage search incl. PDL variants"
+  ],
+  "worked": [
+   "End to end bs32 183.9 vs v1 206.6 us",
+   "CTAs per SM decided everything (bs256 GEMM1 c1 637.9, c2 388.7, c3 318.8 us)"
+  ],
+  "failed": [
+   "M14 only ties Marlin at 128/256 (359.5 vs 358.6, 455.4 vs 440.9 us)",
+   "Every PDL variant failed validation (pre-fix code)",
+   "Wide tiles lost (n8 GEMM1 bs256 608.7 us)"
+  ],
+  "verdict": "M14 ties Marlin at large batch, which is decode-bound; kernel_fn unchanged."
+ },
+ {
+  "job": "5196abee336b4b4d",
+  "when": "Nov 4",
+  "kind": "scored",
+  "file": "moe/submission_m13t.py",
+  "speedup": 1.44,
+  "name": "E8",
+  "implemented": [
+   "Self-tuning prepare(): M13 x L2 prefetch x PDL, M14 stage search",
+   "Tuner switches only if >=3% faster and passes FP32 check",
+   "Bandwidth recon (torch sum, plain stream, M13 math/loads-only)"
+  ],
+  "worked": [
+   "PDL variants now validate (eager + graph) and are the fastest M13 variant",
+   "Recon: plain stream 2.79 TB/s (50 MB), 3.73 TB/s (151 MB)"
+  ],
+  "failed": [
+   "No class switched; M13 ~10% slower than in E5 (bs1 52.7 vs 43.2 us)",
+   "Prefetch-ahead hurt (1.60 -> 1.47 TB/s GEMM1 bs1)",
+   "Decode + MMA add 30-50% on top of loads"
+  ],
+  "verdict": "Tuner kept all incumbents; memory side at small-transfer ceiling, math is slow."
+ },
+ {
+  "job": "1ed851a17965469a",
+  "when": "Nov 4",
+  "kind": "scored",
+  "file": "moe/scored/submission_m13t_e9.py",
+  "speedup": 1.441,
+  "name": "E9",
+  "implemented": [
+   "PDL-safe loads via token from griddepcontrol.wait",
+   "M15: TMA weight ring, one pass up to 64/128 pairs, cost-weighted split",
+   "M15 searched at every size, M14 from 64",
+   "Prefetch-ahead dropped"
+  ],
+  "worked": [
+   "1.441x (CI 1.419-1.462); M15 first GPU run passed (no trap, validated stages)",
+   "beta=4 helped from 32 tokens (GEMM1 n8c2 bs256 620 -> 464 us)"
+  ],
+  "failed": [
+   "M15 loses to incumbents (8 warps per SM): bs256 GEMM1 386 vs M14 312 us",
+   "M13 still 53.4 us at bs1 (E5 43.2): L1 theory later disproved"
+  ],
+  "verdict": "Incumbents kept again; M15 correct but not faster."
+ },
+ {
+  "job": "7fbba6290a8f4f23",
+  "when": "Nov 4",
+  "kind": "scored",
+  "file": "moe/scored/submission_m13t_e12.py",
+  "speedup": 1.439,
+  "name": "E12",
+  "implemented": [
+   "E11 + M16/M17 RS-wgmma large-batch kernels",
+   "M15/M17 small instances (NT 1/2, R 2, 3 CTAs/SM)",
+   "Recon: full / loads only / decode only / MMA only",
+   "Classes [17,33)->M15 small, [33,192)->M14 (tuner +4-5%)"
+  ],
+  "worked": [
+   "Recon: bs128 loads only 108 us (4.01 TB/s) vs full 230.8 us: large batch is decode-bound",
+   "M15 small best non-M11 small kernel: s1 28/66/85/122 us at bs 1/8/16/32"
+  ],
+  "failed": [
+   "M16/M17 > 1.25x the best stage; M17 N=8 1.25-1.5x slower than M15",
+   "M13 prefetches slower in every class (bs1 53.8 vs 60.7 us)",
+   "Tuner wins of 4-5% vanished: bs32/bs128 ~2% slower than E9"
+  ],
+  "verdict": "Switched classes didn't hold on the judge; 3% margin is inside tuner error."
+ },
+ {
+  "job": "5696487fbff440e1",
+  "when": "Nov 4",
+  "kind": "scored",
+  "file": "moe/scored/submission_m13t_e13.py",
+  "speedup": 1.442,
+  "name": "E13",
+  "implemented": [
+   "Pipelined RS-wgmma (DB: two A buffers, wait_group 1) for M16/M17",
+   "One switch per chunk on N; CUTLASS-style operand fences",
+   "Tuner margin raised to 5%"
+  ],
+  "worked": [
+   "1.442x (CI 1.420-1.464); incumbents kept in every class"
+  ],
+  "failed": [
+   "wgmma path slow: M16 GEMM1 bs256 517.9 us vs M14 311 us; removing decode made it slower",
+   "Double-buffering identical to non-DB (n4c2 241 vs 241 us at bs32)",
+   "ptxas likely serializing wgmma"
+  ],
+  "verdict": "RS-wgmma serialized by ptxas; incumbents kept."
+ },
+ {
+  "job": "2e2f531a88e4476c",
+  "when": "Nov 4",
+  "kind": "scored",
+  "file": "moe/scored/submission_m13t_e14.py",
+  "speedup": 1.443,
+  "name": "E14",
+  "implemented": [
+   "fence_regs/fence_acc operand discipline around every wgmma",
+   "Verbose ptxas probe build of M16/M17",
+   "Otherwise E13"
+  ],
+  "worked": [
+   "1.443x (CI 1.422-1.465); probe showed 59 x C7519 and 3 x C7517 injected arrives/waits"
+  ],
+  "failed": [
+   "No M16/M17 combo within 5% of incumbents at 128/256",
+   "Probe output filled the 16,000-char tail; stage/recon lines lost",
+   "M16 decode alone as slow as M14's whole GEMM1"
+  ],
+  "verdict": "ptxas injects wgmma arrives from operand copies; RS-wgmma dropped as a path."
+ },
+ {
+  "job": "d5c0abd9ce0142ae",
+  "when": "Nov 4",
+  "kind": "scored",
+  "file": "moe/scored/submission_m13t_e15.py",
+  "speedup": 1.455,
+  "name": "E15",
+  "implemented": [
+   "M11 GEMM2 with PDL flag + launch_dependents at start",
+   "M13 CUDA PDL post-norm tail (m11p stage kind)",
+   "PDL candidates at 3% margin, others 5%"
+  ],
+  "worked": [
+   "1.455x (CI 1.433-1.477), new best; bs1 35.76 us (2.144x; E14 37.6)",
+   "Class [1,5): 45.1 vs 48.3 us in-tuner, FP32 error 3.4e-3"
+  ],
+  "failed": [
+   "bs8 98.0 vs 101.0 us (3.0%, just short of margin, not switched)",
+   "bs16 144.8 vs 146.7 us: no switch"
+  ],
+  "verdict": "PDL tail on M11 wins at bs1; best so far."
+ },
+ {
+  "job": "f43d80450e854ece",
+  "when": "Nov 4",
+  "kind": "scored",
+  "file": "moe/scored/submission_m13t_e16.py",
+  "speedup": 1.459,
+  "name": "E16",
+  "implemented": [
+   "M18: decode to shared memory + SS-wgmma, one asm statement per chunk",
+   "New row-chunk bank (m18_shuffle), A double-buffered",
+   "M16/M17 removed from search",
+   "bs8 switched to M11 + PDL post-norm at 2% margin"
+  ],
+  "worked": [
+   "1.459x (CI 1.437-1.481), new best; bs8 97.5 us (1.548x, was 1.530x)",
+   "bs1 35.9 us (2.141x)"
+  ],
+  "failed": [
+   "M18 only ties M14: GEMM1 bs256 319 vs 312 us; GEMM2 170 vs 165 us",
+   "M18 at ~22% issue utilization; N<=64 variants >1.25x slower",
+   "M18 never selected, output unvalidated on GPU"
+  ],
+  "verdict": "Small best-so-far gain; three different large-batch kernels all stall at ~310-320 us bs256."
+ },
+ {
+  "job": "3e8e6cc4d56147ee",
+  "when": "Nov 4",
+  "kind": "check",
+  "file": "moe/submission_m13t_e17.py",
+  "speedup": 1.443,
+  "name": "E17",
+  "implemented": [
+   "Skeleton diagnosis recon at bs128/256 GEMM1 (M18 modes 1-4)",
+   "Decode-32 M11 d4 ks2 configs with PDL tail"
+  ],
+  "worked": [
+   "Decode-32 profile: W13 164.4 + W2 86.0 us on this routing"
+  ],
+  "failed": [
+   "Refused M18 recon launch (50,176 B smem > 49,152 B) aborted the whole tuner",
+   "Stale CUDA error broke the cleanup; kernel_fn ran on incumbents; bs1 37.79 us"
+  ],
+  "verdict": "Diagnosis never ran; fixes added incl. check_smem_attrs.py presubmit."
+ },
+ {
+  "job": "27ee50f620384800",
+  "when": "Nov 4",
+  "kind": "check",
+  "file": "moe/submission_m13t_e17b.py",
+  "speedup": 1.456,
+  "name": "E17b",
+  "implemented": [
+   "E17 with m18_setup raising smem limits; m13_launch clears last error",
+   "Guarded skeleton measurements",
+   "M18 P4 and M11 d4 candidates searched"
+  ],
+  "worked": [
+   "1.456x (CI 1.434-1.478); bs1 36.48 us (2.139x), bs8 91.88 us (1.558x)",
+   "CTA barrier costs nothing (320 vs 323 us); skeleton alone 2.64 TB/s"
+  ],
+  "failed": [
+   "Decode (+55 us) and wgmma (+64 us) stack linearly: latency-bound chain",
+   "M15 small was 4.9% faster at bs32 but inside the 5% margin"
+  ],
+  "verdict": "Diagnosis ran: shared-memory weight ring and wide-N hot expert are the levers."
+ },
+ {
+  "job": "a6e477a563194251",
+  "when": "Nov 4",
+  "kind": "check",
+  "file": "moe/submission_m13t_e18.py",
+  "speedup": 1.4625,
+  "name": "E18",
+  "implemented": [
+   "Hot/cold expert split at 128/256 tokens (T=16)",
+   "Cold: M14 n2c3 P2 / t2n2c3 P4; hot: M18 g2.4c3 GEMM1, M14 t1n4c4 GEMM2",
+   "18 split candidates per class, validated vs FP32"
+  ],
+  "worked": [
+   "1.4625x (CI 1.441-1.503), +0.24% over the board",
+   "bs256 450.86 us (1.371x; E17b 474.35, +4%); in-tuner bs256 439.8 -> 414.5 us"
+  ],
+  "failed": [
+   "bs128 339.09 us (1.343x) vs E17b 333.35: 7% in-tuner win didn't hold",
+   "bs32 194.59 us, worse than E17b 184.10",
+   "Hot launch runs on slower kernels (half the experts count as hot)"
+  ],
+  "verdict": "Hot/cold split helps bs256 only; below the 1.5% scored-run threshold."
+ },
+ {
+  "job": "9df74163eea14095",
+  "when": "Nov 4",
+  "kind": "scored",
+  "file": "moe/scored/submission_m13t_e19.py",
+  "speedup": 1.4877,
+  "name": "E19",
+  "implemented": [
+   "M19: M14 with the weight-code ring in shared memory (cp.async), 4 CTAs per SM",
+   "GEMM1 g2.2 P2, GEMM2 t2n2 P4, instances at MB 3 and 4",
+   "Hot/cold split at 128/256 tokens may use M19 as the cold part"
+  ],
+  "worked": [
+   "1.4877x (CI 1.465-1.510), new best, rank 979",
+   "bs128 308.91 us (1.476x), bs256 443.44 us (1.379x)",
+   "Extra CTA per SM: GEMM1 -8%, GEMM2 -5% vs M14 (check E19, MF22)"
+  ],
+  "failed": [
+   "Small batches not helped: bs1 37.46, bs8 95.77, bs16 129.65 us",
+   "bs32 185.60 us; the chain is still latency-bound at 4 CTAs"
+  ],
+  "verdict": "New best: the shared-memory weight ring buys a 4th CTA per SM and speeds the large batches."
+ },
+ {
+  "job": "aaab9119017148a6",
+  "when": "Nov 4",
+  "kind": "scored",
+  "file": "moe/scored/submission_m13t_e24.py",
+  "speedup": 1.5796,
+  "name": "E24",
+  "implemented": [
+   "M11b: M11's gemm kernel on the M13 bank, scales and decode",
+   "Decode ~19 -> ~13 instructions per 8 weights; ~190 -> ~138 per warp-chunk",
+   "Launched via m13_launch (GEMM2 also with PDL); G2P copy updated"
+  ],
+  "worked": [
+   "1.5796x (CI 1.556-1.603), new best, rank 943",
+   "bs1 32.99 us (2.330x), bs8 82.93 (1.771x), bs16 112.99 (1.664x)",
+   "bs256 435.96 us (1.409x), bs128 324.12 us (1.425x)"
+  ],
+  "failed": [
+   "bs32 182.32 us (1.127x): stays on M19, no M11b nt2 instance yet",
+   "bs128 324.12 us in this run vs 307.45 in the E24 check"
+  ],
+  "verdict": "Cheaper decode inside M11's own kernel lifted bs1-16; bs32 and large batch unchanged."
+ },
+ {
+  "job": "b5da76a6e7cb4267",
+  "when": "Nov 4",
+  "kind": "scored",
+  "file": "moe/scored/submission_m13t_e25.py",
+  "speedup": 1.6279,
+  "name": "E25",
+  "implemented": [
+   "M11b instances with 16-pair passes for 17-32 tokens",
+   "bs32 class: M11b n1d4k2c8 GEMM1 + t2n1d4k4c8 GEMM2 (PDL)"
+  ],
+  "worked": [
+   "1.6279x (CI 1.603-1.652), new best, rank 914",
+   "bs32 158.51 us (1.291x), was 1.127x on M19",
+   "bs1 33.25 us (2.370x), bs8 84.83 (1.768x), bs16 116.69 (1.671x)"
+  ],
+  "failed": [
+   "bs128 324.97 us (1.434x), bs256 429.65 us (1.436x) unchanged"
+  ],
+  "verdict": "M11b at 17-32 tokens lifted bs32 from 1.127x to 1.291x for a new best."
+ },
+ {
+  "job": "0f7feacab3b74f7f",
+  "when": "Nov 4 23:47",
+  "kind": "scored",
+  "file": "moe/scored/submission_m13t_e28.py",
+  "speedup": 1.621,
+  "name": "E28",
+  "implemented": [
+   "E27 with the incumbents' code restored and immediate barrier ids: M11b's body behind gemm_kernel (plain launch bounds) and occ_kernel (min-blocks launch bounds, split-K sync on immediate barrier ids)",
+   "occupancy builds (minb 4) for the 136-138-register shapes"
+  ],
+  "worked": [
+   "check a5e0bdec: 1.6308x, +0.18% over the board; the capped builds reach 5-7 CTAs per SM"
+  ],
+  "failed": [
+   "scored 1.6210x (CI 1.597-1.645), below the board entry E25 (1.6279x)",
+   "bs128's gain (305.7-312.7 us in checks) didn't hold: 316.58 us in this run"
+  ],
+  "verdict": "Board unchanged (E25 1.6279x kept, rank 918)."
+ },
+ {
+  "job": "73e71876d57147a7",
+  "when": "Nov 5 02:59",
+  "kind": "scored",
+  "file": "moe/scored/submission_m13t_e36.py",
+  "speedup": 1.652,
+  "name": "E36",
+  "implemented": [
+   "late wait for GEMM2's hot launch (lad: launch_dependents only after its own wait) and for M11b's hot launches",
+   "tuner: bs128/256 splits with hot GEMM2 W; bs16/32 M11b splits with late waits"
+  ],
+  "worked": [
+   "scored 1.6520x (CI 1.627-1.677), new board entry, rank 906",
+   "per shape bs1 32.47 us (2.389x), bs8 85.86 (1.756x), bs16 114.44 (1.674x), bs32 160.74 (1.307x), bs128 303.79 (1.536x), bs256 430.17 (1.442x)"
+  ],
+  "failed": [],
+  "verdict": "New board entry."
+ },
+ {
+  "job": "eb9985e4e45747b6",
+  "when": "Nov 5 04:18",
+  "kind": "scored",
+  "file": "moe/scored/submission_m13t_e41.py",
+  "speedup": 1.6485,
+  "name": "E41",
+  "implemented": [
+   "GEMM2 with one row tile per task (tuner only, on E40)"
+  ],
+  "worked": [
+   "check 2b458036 1.6429x"
+  ],
+  "failed": [
+   "scored 1.6485x, below the board's 1.6520x"
+  ],
+  "verdict": "Board unchanged (E36 stays)."
+ }
+]
